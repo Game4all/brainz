@@ -11,48 +11,55 @@ pub fn main() !void {
 
     const alloc = gpa.allocator();
 
-    var arena = std.heap.ArenaAllocator.init(alloc);
-
-    const XORMlp = aneurysm.Network(@constCast(&[_]type{
-        aneurysm.DenseLayer(2, 3, aneurysm.sigmoid),
-        aneurysm.DenseLayer(3, 1, aneurysm.sigmoid),
+    const MLP = aneurysm.Network(@constCast(&[_]type{
+        aneurysm.DenseLayer(2, 2, aneurysm.math.relu),
+        aneurysm.DenseLayer(2, 1, aneurysm.math.sigmoid),
     }));
 
-    var net: XORMlp = .{};
-
+    var net: MLP = .{};
     try net.init(alloc);
-    @memset(net.layers.@"0".biases, 0.0);
-    @memset(net.layers.@"1".biases, 0.0);
+    // try net.init_weights(@constCast(&WEIGHTS), @constCast(&BIASES), alloc);
     defer net.deinit(alloc);
 
-    const INPUTS = [_][2]f32{
+    // const A = &[_]f32{ 2.0, -1 };
+    // const B = &[_]f32{1.0};
+
+    // for (0..1000) |_| {
+    //     _ = net.forward(@constCast(A));
+    //     net.backwards(@constCast(A), @constCast(B), 0.1);
+    // }
+
+    // std.log.info("Pred: {any}", .{net.forward(@constCast(A))});
+
+    const inputs = [_][2]f32{
         [2]f32{ 0.0, 0.0 },
         [2]f32{ 0.0, 1.0 },
         [2]f32{ 1.0, 0.0 },
         [2]f32{ 1.0, 1.0 },
     };
 
-    const OUTPUTS = [_][1]f32{
+    const outputs = [_][1]f32{
         [1]f32{0.0},
         [1]f32{1.0},
         [1]f32{1.0},
         [1]f32{0.0},
     };
 
-    for (0..50_000) |i| {
-        var e: f32 = 0.0;
-        for (INPUTS, OUTPUTS) |inp, outp| {
-            _ = net.forward(@constCast(&inp));
-            e += try net.backprop(@constCast(&outp), @constCast(&inp), .{ .learn_rate = 0.5, .grad_clip_norm = 0.5 }, arena.allocator());
+    for (0..1_500_000) |_| {
+        for (inputs, outputs) |ins, outs| {
+            _ = net.forward(@constCast(&ins));
+            net.backwards(@constCast(&outs), 0.01);
         }
-        std.log.info("Iteration: {} | err={}", .{ i, e });
-        _ = arena.reset(.retain_capacity);
     }
 
-    for (INPUTS, OUTPUTS) |inp, outp| {
-        const pred = net.forward(@constCast(&inp));
-        std.log.info("Prediction for {any} => {any}  (Real is {any})", .{ inp, pred, outp });
+    for (inputs, outputs) |ins, outs| {
+        const prediction = net.forward(@constCast(&ins));
+        // try std.testing.expect(std.mem.eql(f32, prediction, &outs));
+        std.log.info("Pred for {any} = {any} (real: {any})", .{ ins, prediction, outs });
     }
 
-    arena.deinit();
+    // std.log.info("{any}", .{net.forward(@constCast(A))});
+
+    // const B = &[_]f32{1.0};
+
 }

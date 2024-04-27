@@ -48,51 +48,28 @@ pub fn Network(structure: []type) type {
             return last_outputs;
         }
 
-        pub fn backprop(self: *@This(), desired_out: []f32, input: []f32, params: BackpropParams, alloc: std.mem.Allocator) !f32 {
-
-            // allocating the error gradients for backpropagation
-            const error_grads = try alloc.alloc([]f32, structure.len);
-            defer alloc.free(error_grads);
-            inline for (error_grads, 0..structure.len) |*grad, layer_index| {
-                grad.* = try alloc.alloc(f32, structure[layer_index].NUM_OUTPUTS);
-                defer alloc.free(grad.*);
-            }
-
+        pub fn backwards(self: *@This(), expected_out: []f32, rate: f32) void {
             const num_layers: i32 = @intCast(structure.len - 1);
-
-            // calculating loss gradients for previous layers
             comptime var layer_idx = num_layers;
-            inline while (layer_idx >= 0) : (layer_idx -= 1) {
-                if (layer_idx == num_layers) { // calculate the loss for the last layer
-                    const last_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{structure.len - 1}));
-                    for (error_grads[structure.len - 1], desired_out, last_layer.last_outputs) |*grad, desired_output, last_output|
-                        grad.* = desired_output - last_output;
-                } else {
-                    const current_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_idx}));
-                    const previous_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_idx + 1}));
 
-                    for (error_grads[layer_idx], current_layer.last_activ_outputs, 0..) |*grad, last_activ, input_idx| {
-                        var summed: f32 = 0.0;
-                        for (0..previous_layer.last_activ_outputs.len) |n_idx| {
-                            const r = error_grads[layer_idx + 1][n_idx] * previous_layer.weights[n_idx * current_layer.last_activ_outputs.len + input_idx];
-                            summed += r;
-                        }
-                        grad.* = last_activ.value * last_activ.derivative * summed;
-                    }
+            inline while (layer_idx >= 0) : (layer_idx -= 1) {
+                if (layer_idx == num_layers) {
+                    var last_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{structure.len - 1}));
+                    last_layer.backwards_out(expected_out);
+                } else {
+                    var current_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_idx}));
+                    const previous_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_idx + 1}));
+                    current_layer.backwards(previous_layer.gamma, previous_layer.weights, structure[@intCast(layer_idx + 1)].NUM_OUTPUTS);
                 }
             }
 
-            var total_e: f32 = 0.0;
-
-            total_e += self.layers.@"0".backprop(input, error_grads[0], params);
-
-            inline for (1..structure.len) |layer_index| {
-                // std.log.info("Updating weights of layer {}", .{layer_index});
-                const previous_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_index - 1}));
-                total_e += @field(self.layers, std.fmt.comptimePrint("{}", .{layer_index})).backprop(previous_layer.last_outputs, error_grads[layer_index], params);
+            inline for (0..structure.len) |layer| {
+                if (layer == 0) {
+                    self.layers.@"0".update_weights(rate);
+                } else {
+                    @field(self.layers, std.fmt.comptimePrint("{}", .{layer})).update_weights(rate);
+                }
             }
-
-            return total_e;
         }
 
         /// Prints info about the network to the console.
@@ -153,6 +130,6 @@ test "multi layer perceptron XOR test" {
 
     for (inputs, outputs) |ins, outs| {
         const prediction = network.forward(@constCast(&ins));
-        try std.testing.expect(std.mem.eql(f32, prediction, &outs));
+        try std.testing.expectEqualSlices(f32, &outs, prediction);
     }
 }
