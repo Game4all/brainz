@@ -10,12 +10,14 @@ fn LayerInfo(layer: type) struct { usize, usize, []const u8 } {
 pub fn Network(structure: []type) type {
     return struct {
         layers: std.meta.Tuple(structure) = undefined,
+        last_inputs: []f32 = &[_]f32{},
 
         /// Initialize the network with random weights and biases
         pub fn init(self: *@This(), alloc: std.mem.Allocator) !void {
             inline for (0..structure.len) |layer_index| {
                 try @field(self.layers, std.fmt.comptimePrint("{}", .{layer_index})).init(alloc);
             }
+            self.last_inputs = try alloc.alloc(f32, structure[0].NUM_INPUTS);
         }
 
         /// Initialize the each layer of the network with the specified weights and biases.
@@ -29,16 +31,22 @@ pub fn Network(structure: []type) type {
 
                 try @field(self.layers, std.fmt.comptimePrint("{}", .{layer_index})).init_weights(weights_copy, biases_copy, alloc);
             }
+            self.last_inputs = try alloc.alloc(f32, structure[0].NUM_INPUTS);
         }
 
         pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
             inline for (0..structure.len) |layer_index| {
                 @field(self.layers, std.fmt.comptimePrint("{}", .{layer_index})).deinit(alloc);
             }
+            alloc.free(self.last_inputs);
+            self.last_inputs = &[_]f32{};
         }
 
         /// Performs forward propagation through the network.
         pub fn forward(self: *@This(), input: []f32) []f32 {
+            std.debug.assert(input.len == self.last_inputs.len);
+            @memcpy(self.last_inputs, input);
+
             var last_outputs: []f32 = &[_]f32{};
             last_outputs = self.layers.@"0".forward(input);
 
@@ -65,9 +73,10 @@ pub fn Network(structure: []type) type {
 
             inline for (0..structure.len) |layer| {
                 if (layer == 0) {
-                    self.layers.@"0".update_weights(rate);
+                    self.layers.@"0".update_weights(self.last_inputs, rate);
                 } else {
-                    @field(self.layers, std.fmt.comptimePrint("{}", .{layer})).update_weights(rate);
+                    const prev_outputs = @field(self.layers, std.fmt.comptimePrint("{}", .{layer - 1})).last_outputs;
+                    @field(self.layers, std.fmt.comptimePrint("{}", .{layer})).update_weights(prev_outputs, rate);
                 }
             }
         }
@@ -131,5 +140,45 @@ test "multi layer perceptron XOR test" {
     for (inputs, outputs) |ins, outs| {
         const prediction = network.forward(@constCast(&ins));
         try std.testing.expectEqualSlices(f32, &outs, prediction);
+    }
+}
+
+test "multi layer perceptron XOR backpropagation learning test" {
+    const DenseLayer = @import("dense.zig").DenseLayer;
+    const sigmoid = @import("../math.zig").sigmoid;
+
+    const XorMlp = Network(@constCast(&[_]type{
+        DenseLayer(2, 2, sigmoid),
+        DenseLayer(2, 1, sigmoid),
+    }));
+
+    var net: XorMlp = .{};
+    try net.init(std.testing.allocator);
+    defer net.deinit(std.testing.allocator);
+
+    const inputs = [_][2]f32{
+        [2]f32{ 0.0, 0.0 },
+        [2]f32{ 0.0, 1.0 },
+        [2]f32{ 1.0, 0.0 },
+        [2]f32{ 1.0, 1.0 },
+    };
+
+    const outputs = [_][1]f32{
+        [1]f32{0.0},
+        [1]f32{1.0},
+        [1]f32{1.0},
+        [1]f32{0.0},
+    };
+
+    for (0..10_000) |_| {
+        for (inputs, outputs) |ins, outs| {
+            _ = net.forward(@constCast(&ins));
+            net.backwards(@constCast(&outs), 0.5);
+        }
+    }
+
+    for (inputs, outputs) |ins, outs| {
+        const prediction = net.forward(@constCast(&ins));
+        try std.testing.expectApproxEqAbs(outs[0], prediction[0], 0.1);
     }
 }

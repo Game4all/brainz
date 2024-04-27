@@ -7,7 +7,7 @@ const Allocator = std.mem.Allocator;
 const BackpropParams = @import("backprop.zig").BackpropParams;
 
 /// A layer of densely connected neurons.
-/// TODO: Allow for an inference_only mode.
+/// TODO: Use a different approach to compute derivatives instead of using a dual number representation for differentiation.
 pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime activation: fn (x: anytype) Df32) type {
     return struct {
         /// Layer weights.
@@ -22,7 +22,6 @@ pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime acti
 
         ///------------------------------------- Backward propagation stuff ----------------------
         gamma: []f32 = &[_]f32{},
-        inputs: []f32 = &[_]f32{},
 
         pub const NUM_INPUTS = num_in;
         pub const NUM_OUTPUTS = num_out;
@@ -67,7 +66,6 @@ pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime acti
             self.last_activ_outputs = try allocator.alloc(Df32, num_out);
 
             self.gamma = try allocator.alloc(f32, num_out);
-            self.inputs = try allocator.alloc(f32, num_in);
         }
 
         /// Performs forward propagation of the inputs through this perceptron layer.
@@ -88,8 +86,6 @@ pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime acti
                 self.last_outputs[n_idx] = val.value;
             }
 
-            @memcpy(self.inputs, inputs);
-
             return self.last_outputs;
         }
 
@@ -100,6 +96,7 @@ pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime acti
             }
         }
 
+        /// Performs backward propagation of the loss values.
         pub fn backwards(self: *@This(), prev_gamma: []f32, prev_weights: []f32, prev_num_out: usize) void {
             for (self.gamma, self.last_activ_outputs, 0..) |*gamma, last_activ, input_idx| {
                 var summed: f32 = 0.0;
@@ -110,11 +107,11 @@ pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime acti
             }
         }
 
-        pub fn update_weights(self: *@This(), rate: f32) void {
+        pub fn update_weights(self: *@This(), inputs: []f32, rate: f32) void {
             for (self.biases, self.gamma, 0..) |*bias, loss, n_idx| {
                 const w_grad = loss * rate;
                 for (0..num_in) |weight_index|
-                    self.weights[n_idx * num_in + weight_index] = self.weights[n_idx * num_in + weight_index] + w_grad * self.inputs[weight_index];
+                    self.weights[n_idx * num_in + weight_index] = self.weights[n_idx * num_in + weight_index] + w_grad * inputs[weight_index];
 
                 bias.* += w_grad;
             }
@@ -128,7 +125,6 @@ pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime acti
 
             // backprop
             allocator.free(self.gamma);
-            allocator.free(self.inputs);
         }
     };
 }
