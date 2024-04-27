@@ -1,0 +1,9 @@
+.{
+    .name = "aneursym",
+    .version = "0.0.0",
+    .dependencies = .{},
+
+    .paths = .{
+        "",
+    },
+}
