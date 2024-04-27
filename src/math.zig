@@ -149,6 +149,21 @@ pub fn mse(a: []f32, b: []f32) f32 {
     return (1.0 / @as(f32, @floatFromInt(a.len))) * err;
 }
 
+/// Returns the biggest value in the input slice.
+pub fn argmax(probs: []f32) usize {
+    var max_value: f32 = 0.0;
+    var max_index: usize = 0;
+
+    for (probs, 0..) |prob, i| {
+        if (prob > max_value) {
+            max_value = prob;
+            max_index = i;
+        }
+    }
+
+    return max_index;
+}
+
 test "auto diff derivative calc test" {
     const testing = std.testing;
 
@@ -164,4 +179,11 @@ test "auto diff derivative calc test" {
 
     try testing.expectEqual(11.0, eval.value); //2 * (1) + 1 = 3
     try testing.expectEqual(2.0, eval.derivative);
+}
+
+test "argmax test" {
+    const testing = std.testing;
+
+    const inputs = [_]f32{ -1.0, 1.0, 4.0, 10e+7, 19999.0 };
+    try testing.expectEqual(3, argmax(@constCast(&inputs)));
 }

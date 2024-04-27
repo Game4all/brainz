@@ -1,8 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const BackpropParams = @import("backprop.zig").BackpropParams;
-
 fn LayerInfo(layer: type) struct { usize, usize, []const u8 } {
     return .{ @field(layer, "NUM_INPUTS"), @field(layer, "NUM_OUTPUTS"), @field(layer, "LAYER_TYPE") };
 }

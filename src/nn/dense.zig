@@ -4,8 +4,6 @@ const Df32 = math.Df32;
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const BackpropParams = @import("backprop.zig").BackpropParams;
-
 /// A layer of densely connected neurons.
 /// TODO: Use a different approach to compute derivatives instead of using a dual number representation for differentiation.
 pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime activation: fn (x: anytype) Df32) type {

@@ -1,6 +1,6 @@
 .{
-    .name = "aneursym",
-    .version = "0.0.0",
+    .name = "brainz",
+    .version = "0.0.1",
     .dependencies = .{},
 
     .paths = .{

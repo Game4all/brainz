@@ -1,9 +1,5 @@
 const std = @import("std");
-const aneurysm = @import("root.zig");
-
-comptime {
-    std.testing.refAllDeclsRecursive(aneurysm);
-}
+const brainz = @import("brainz");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -11,9 +7,9 @@ pub fn main() !void {
 
     const alloc = gpa.allocator();
 
-    const MLP = aneurysm.Network(@constCast(&[_]type{
-        aneurysm.DenseLayer(2, 2, aneurysm.math.sigmoid),
-        aneurysm.DenseLayer(2, 1, aneurysm.math.sigmoid),
+    const MLP = brainz.Network(@constCast(&[_]type{
+        brainz.DenseLayer(2, 2, brainz.math.relu),
+        brainz.DenseLayer(2, 1, brainz.math.sigmoid),
     }));
 
     var net: MLP = .{};
