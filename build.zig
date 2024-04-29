@@ -35,4 +35,18 @@ pub fn build(b: *std.Build) void {
 
     _ = b.step("example_xor", "Runs the XOR Mlp example")
         .dependOn(&run_xor_example.step);
+
+    const lin_reg_example = b.addExecutable(.{
+        .optimize = optimize,
+        .target = target,
+        .root_source_file = .{ .path = "examples/linear_regression.zig" },
+        .name = "lin_reg_example",
+    });
+
+    lin_reg_example.root_module.addImport("brainz", lib);
+
+    var run_lin_reg_example = b.addRunArtifact(lin_reg_example);
+
+    _ = b.step("example_linreg", "Runs the linear regression example")
+        .dependOn(&run_lin_reg_example.step);
 }
