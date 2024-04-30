@@ -18,7 +18,7 @@ pub fn Perceptron(comptime num_inputs: usize, comptime activation: fn (x: anytyp
             } else {
                 var rnd = blk: {
                     var seed: u64 = undefined;
-                    try std.os.getrandom(std.mem.asBytes(&seed));
+                    try std.posix.getrandom(@constCast(@alignCast(std.mem.asBytes(&seed))));
                     var pcg = std.Random.Pcg.init(seed);
                     break :blk pcg.random();
                 };

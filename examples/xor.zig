@@ -8,8 +8,8 @@ pub fn main() !void {
     const alloc = gpa.allocator();
 
     const MLP = brainz.Network(@constCast(&[_]type{
-        brainz.DenseLayer(2, 2, brainz.math.relu),
-        brainz.DenseLayer(2, 1, brainz.math.sigmoid),
+        brainz.DenseLayer(2, 2, brainz.activation.Sigmoid),
+        brainz.DenseLayer(2, 1, brainz.activation.Sigmoid),
     }));
 
     var net: MLP = .{};

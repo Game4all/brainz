@@ -100,11 +100,11 @@ pub fn Network(structure: []type) type {
 
 test "multi layer perceptron XOR test" {
     const DenseLayer = @import("dense.zig").DenseLayer;
-    const unit_step = @import("../math.zig").unit_step;
+    const Heaviside = @import("activation.zig").Heaviside;
 
     const XorMLP = Network(@constCast(&[_]type{
-        DenseLayer(2, 2, unit_step),
-        DenseLayer(2, 1, unit_step),
+        DenseLayer(2, 2, Heaviside),
+        DenseLayer(2, 1, Heaviside),
     }));
 
     const weights = [_][]f32{
@@ -143,11 +143,11 @@ test "multi layer perceptron XOR test" {
 
 test "multi layer perceptron XOR backpropagation learning test" {
     const DenseLayer = @import("dense.zig").DenseLayer;
-    const sigmoid = @import("../math.zig").sigmoid;
+    const Sigmoid = @import("activation.zig").Sigmoid;
 
     const XorMlp = Network(@constCast(&[_]type{
-        DenseLayer(2, 2, sigmoid),
-        DenseLayer(2, 1, sigmoid),
+        DenseLayer(2, 2, Sigmoid),
+        DenseLayer(2, 1, Sigmoid),
     }));
 
     var net: XorMlp = .{};

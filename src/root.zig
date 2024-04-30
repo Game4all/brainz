@@ -2,6 +2,7 @@ const perceptron = @import("perceptron.zig");
 
 const std = @import("std");
 pub const math = @import("math.zig");
+pub const activation = @import("nn/activation.zig");
 
 pub const Perceptron = perceptron.Perceptron;
 pub const DenseLayer = @import("nn/dense.zig").DenseLayer;

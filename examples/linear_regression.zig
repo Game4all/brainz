@@ -10,7 +10,7 @@ pub fn main() !void {
     // Performs linear regression using a neural network.
     // by adding more layers with different activation functions, you could have the network imitate a more complex function.
     const RegNetwork = brainz.Network(@constCast(&[_]type{
-        brainz.DenseLayer(1, 1, brainz.math.linear),
+        brainz.DenseLayer(1, 1, brainz.activation.Linear),
     }));
 
     var lin_reg: RegNetwork = .{};
