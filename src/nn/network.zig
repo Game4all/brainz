@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Loss = @import("loss.zig").Loss;
 
 fn LayerInfo(layer: type) struct { usize, usize, []const u8 } {
     return .{ @field(layer, "NUM_INPUTS"), @field(layer, "NUM_OUTPUTS"), @field(layer, "LAYER_TYPE") };
@@ -54,14 +55,16 @@ pub fn Network(structure: []type) type {
             return last_outputs;
         }
 
-        pub fn backwards(self: *@This(), expected_out: []f32, rate: f32) void {
+        pub fn backwards(self: *@This(), expected_out: []f32, rate: f32, loss: Loss) f32 {
             const num_layers: i32 = @intCast(structure.len - 1);
             comptime var layer_idx = num_layers;
+
+            var total_loss: f32 = 0.0;
 
             inline while (layer_idx >= 0) : (layer_idx -= 1) {
                 if (layer_idx == num_layers) {
                     var last_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{structure.len - 1}));
-                    last_layer.backwards_out(expected_out);
+                    total_loss = last_layer.backwards_out(expected_out, loss);
                 } else {
                     var current_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_idx}));
                     const previous_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_idx + 1}));
@@ -77,6 +80,8 @@ pub fn Network(structure: []type) type {
                     @field(self.layers, std.fmt.comptimePrint("{}", .{layer})).update_weights(prev_outputs, rate);
                 }
             }
+
+            return total_loss;
         }
 
         /// Prints info about the network to the console.
@@ -144,6 +149,7 @@ test "multi layer perceptron XOR test" {
 test "multi layer perceptron XOR backpropagation learning test" {
     const DenseLayer = @import("dense.zig").DenseLayer;
     const Sigmoid = @import("activation.zig").Sigmoid;
+    const MSE = @import("loss.zig").MSE;
 
     const XorMlp = Network(@constCast(&[_]type{
         DenseLayer(2, 2, Sigmoid),
@@ -171,7 +177,7 @@ test "multi layer perceptron XOR backpropagation learning test" {
     for (0..10_000) |_| {
         for (inputs, outputs) |ins, outs| {
             _ = net.forward(@constCast(&ins));
-            net.backwards(@constCast(&outs), 0.5);
+            _ = net.backwards(@constCast(&outs), 0.5, MSE);
         }
     }
 

@@ -4,6 +4,7 @@ const Df32 = math.Df32;
 const std = @import("std");
 const Activation = @import("activation.zig").Activation;
 const Allocator = std.mem.Allocator;
+const Loss = @import("loss.zig").Loss;
 
 /// A layer of densely connected neurons.
 /// TODO: Use a different approach to compute derivatives instead of using a dual number representation for differentiation.
@@ -82,10 +83,13 @@ pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime acti
         }
 
         /// Performs backward propagation of the loss values for the output layer.
-        pub fn backwards_out(self: *@This(), expected_outputs: []f32) void {
+        pub fn backwards_out(self: *@This(), expected_outputs: []f32, loss: Loss) f32 {
+            var total_loss: f32 = 0.0;
             for (self.gamma, self.last_outputs, expected_outputs) |*gamma, last_out, expected_output| {
-                gamma.* = (expected_output - last_out) * activation.apply_derivative(last_out, self.last_outputs);
+                total_loss += loss.compute(last_out, expected_output);
+                gamma.* = loss.compute_derivative(last_out, expected_output) * activation.apply_derivative(last_out, self.last_outputs);
             }
+            return total_loss;
         }
 
         /// Performs backward propagation of the loss values.

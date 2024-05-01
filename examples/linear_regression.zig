@@ -31,11 +31,15 @@ pub fn main() !void {
         [1]f32{19.0},
     };
 
-    for (0..5000) |_| {
+    for (0..5000) |i| {
+        var e: f32 = 0.0;
         for (inputs, outputs) |in, out| {
             _ = lin_reg.forward(@constCast(&in));
-            lin_reg.backwards(@constCast(&out), 0.001);
+            e += lin_reg.backwards(@constCast(&out), 0.001, brainz.loss.MSE);
         }
+
+        if (i % 50 == 0)
+            std.log.info("loss: {}", .{e});
     }
 
     for (inputs, outputs) |ins, outs| {

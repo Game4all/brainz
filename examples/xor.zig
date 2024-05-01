@@ -30,11 +30,14 @@ pub fn main() !void {
         [1]f32{0.0},
     };
 
-    for (0..1_500_000) |_| {
+    for (0..1_500_000) |i| {
+        var e: f32 = 0.0;
         for (inputs, outputs) |ins, outs| {
             _ = net.forward(@constCast(&ins));
-            net.backwards(@constCast(&outs), 0.01);
+            e += net.backwards(@constCast(&outs), 0.1, brainz.loss.BinaryCrossEntropy);
         }
+        if (i % 10_000 == 0)
+            std.log.info("loss: {}", .{e});
     }
 
     for (inputs, outputs) |ins, outs| {
