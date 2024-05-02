@@ -64,3 +64,22 @@ fn heaviside_activation(in: f32, _: []f32) f32 {
 fn heaviside_derivative(out: f32, _: []f32) f32 {
     return @max(std.math.sign(out), 0) * out;
 }
+
+/// Softmax activation function
+pub const Softmax: Activation = .{
+    .apply = softmax_activation,
+    .apply_derivative = softmax_derivative,
+};
+
+fn softmax_activation(in: f32, ins: []f32) f32 {
+    var sum: f32 = 0.0;
+    for (ins) |i|
+        sum += std.math.exp(i);
+
+    return std.math.exp(in) / sum;
+}
+
+//NOTE: this derivative is only valid when using the softmax activation.
+fn softmax_derivative(in: f32, _: []f32) f32 {
+    return in;
+}

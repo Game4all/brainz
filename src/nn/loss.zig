@@ -21,6 +21,7 @@ fn mse_derivative(input: f32, target: f32) f32 {
 }
 
 /// Binary cross entropy.
+/// This loss function assumes the output layer uses sigmoid activation.
 pub const BinaryCrossEntropy: Loss = .{
     .compute = bce_loss,
     .compute_derivative = bce_derivative,
@@ -32,4 +33,19 @@ fn bce_loss(input: f32, target: f32) f32 {
 
 fn bce_derivative(input: f32, target: f32) f32 {
     return -((input - target) / (input * (1.0 - input)));
+}
+
+/// Categorical cross entropy.
+/// This loss function asumes the output layer uses softmax activation.
+pub const CategoricalCrossEntropy: Loss = .{
+    .compute = cce_loss,
+    .compute_derivative = bce_derivative,
+};
+
+fn cce_loss(input: f32, target: f32) f32 {
+    return -target * @log(input);
+}
+
+fn cce_derivative(input: f32, target: f32) f32 {
+    return target - input;
 }

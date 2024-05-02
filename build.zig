@@ -49,4 +49,18 @@ pub fn build(b: *std.Build) void {
 
     _ = b.step("example_linreg", "Runs the linear regression example")
         .dependOn(&run_lin_reg_example.step);
+
+    const classification_example = b.addExecutable(.{
+        .optimize = optimize,
+        .target = target,
+        .root_source_file = .{ .path = "examples/classification.zig" },
+        .name = "classification",
+    });
+
+    classification_example.root_module.addImport("brainz", lib);
+
+    var run_classification_example = b.addRunArtifact(classification_example);
+
+    _ = b.step("example_classification", "Runs the classification example")
+        .dependOn(&run_classification_example.step);
 }
