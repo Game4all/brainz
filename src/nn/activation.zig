@@ -79,7 +79,6 @@ fn softmax_activation(in: f32, ins: []f32) f32 {
     return std.math.exp(in) / sum;
 }
 
-//NOTE: this derivative is only valid when using the softmax activation.
 fn softmax_derivative(in: f32, _: []f32) f32 {
-    return in;
+    return in * (1.0 - in);
 }

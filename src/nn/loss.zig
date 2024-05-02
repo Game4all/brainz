@@ -47,5 +47,5 @@ fn cce_loss(input: f32, target: f32) f32 {
 }
 
 fn cce_derivative(input: f32, target: f32) f32 {
-    return target - input;
+    return input - target;
 }

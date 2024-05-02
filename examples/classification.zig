@@ -8,8 +8,8 @@ pub fn main() !void {
     const alloc = gpa.allocator();
 
     const MLP = brainz.Network(@constCast(&[_]type{
-        brainz.DenseLayer(4, 3, brainz.activation.Sigmoid),
-        brainz.DenseLayer(3, 3, brainz.activation.Sigmoid),
+        brainz.DenseLayer(4, 3, brainz.activation.ReLu),
+        brainz.DenseLayer(3, 3, brainz.activation.ReLu),
         brainz.DenseLayer(3, 4, brainz.activation.Softmax),
     }));
 
@@ -33,14 +33,14 @@ pub fn main() !void {
         [4]f32{ 1.0, 0.0, 0.0, 1.0 },
     };
 
-    for (0..1_500_000) |i| {
+    for (0..100_000) |i| {
         var e: f32 = 0.0;
         for (inputs, outputs) |ins, outs| {
             _ = net.forward(@constCast(&ins));
-            e += net.backwards(@constCast(&outs), 0.1, brainz.loss.MSE);
+            e += net.backwards(@constCast(&outs), 0.001, brainz.loss.CategoricalCrossEntropy);
         }
 
-        if (i % 10_000 == 0)
+        if (i % 1_000 == 0)
             std.log.info("loss: {}", .{e});
     }
 
