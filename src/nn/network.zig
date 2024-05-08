@@ -1,27 +1,35 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Loss = @import("loss.zig").Loss;
+const meta = @import("meta.zig");
 
-fn LayerInfo(layer: type) struct { usize, usize, []const u8, []const u8 } {
-    return .{ @field(layer, "NUM_INPUTS"), @field(layer, "NUM_OUTPUTS"), @field(layer, "LAYER_TYPE"), @field(layer, "LAYER_ACTIVATION") };
+pub fn Network(comptime layer_types: []const type) type {
+    comptime var layers: [layer_types.len]meta.LayerInfo = undefined;
+    inline for (&layers, layer_types) |*layer, ty|
+        layer.* = meta.Layer(ty);
+
+    return NetworkInner(&layers, layer_types);
 }
 
-pub fn Network(structure: []type) type {
+fn NetworkInner(comptime network_layers: []const meta.LayerInfo, comptime layer_types: []const type) type {
     return struct {
-        layers: std.meta.Tuple(structure) = undefined,
+        layers: std.meta.Tuple(layer_types) = undefined,
         last_inputs: []f32 = &[_]f32{},
+
+        /// Information about all the layers in this network.
+        const LAYERS: []const meta.LayerInfo = network_layers;
 
         /// Initialize the network with random weights and biases
         pub fn init(self: *@This(), alloc: std.mem.Allocator) !void {
-            inline for (0..structure.len) |layer_index| {
+            inline for (0..network_layers.len) |layer_index| {
                 try @field(self.layers, std.fmt.comptimePrint("{}", .{layer_index})).init(alloc);
             }
-            self.last_inputs = try alloc.alloc(f32, structure[0].NUM_INPUTS);
+            self.last_inputs = try alloc.alloc(f32, network_layers[0].num_inputs);
         }
 
         /// Initialize the each layer of the network with the specified weights and biases.
         pub fn init_weights(self: *@This(), weights: [][]f32, biases: [][]f32, alloc: std.mem.Allocator) !void {
-            inline for (0..structure.len) |layer_index| {
+            inline for (0..network_layers.len) |layer_index| {
                 const weights_copy = try alloc.alloc(f32, weights[layer_index].len);
                 const biases_copy = try alloc.alloc(f32, biases[layer_index].len);
 
@@ -30,11 +38,11 @@ pub fn Network(structure: []type) type {
 
                 try @field(self.layers, std.fmt.comptimePrint("{}", .{layer_index})).init_weights(weights_copy, biases_copy, alloc);
             }
-            self.last_inputs = try alloc.alloc(f32, structure[0].NUM_INPUTS);
+            self.last_inputs = try alloc.alloc(f32, network_layers[0].num_inputs);
         }
 
         pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-            inline for (0..structure.len) |layer_index| {
+            inline for (0..network_layers.len) |layer_index| {
                 @field(self.layers, std.fmt.comptimePrint("{}", .{layer_index})).deinit(alloc);
             }
             alloc.free(self.last_inputs);
@@ -46,59 +54,41 @@ pub fn Network(structure: []type) type {
             std.debug.assert(input.len == self.last_inputs.len);
             @memcpy(self.last_inputs, input);
 
-            var last_outputs: []f32 = &[_]f32{};
-            last_outputs = self.layers.@"0".forward(input);
-
-            inline for (1..structure.len) |layer_index|
+            var last_outputs: []f32 = input;
+            inline for (0..network_layers.len) |layer_index|
                 last_outputs = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_index})).forward(last_outputs);
 
             return last_outputs;
         }
 
         pub fn backwards(self: *@This(), expected_out: []f32, rate: f32, loss: Loss) f32 {
-            const num_layers: i32 = @intCast(structure.len - 1);
+            const num_layers: i32 = @intCast(network_layers.len - 1);
             comptime var layer_idx = num_layers;
 
             var total_loss: f32 = 0.0;
 
             inline while (layer_idx >= 0) : (layer_idx -= 1) {
                 if (layer_idx == num_layers) {
-                    var last_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{structure.len - 1}));
+                    var last_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_idx}));
                     total_loss = last_layer.backwards_out(expected_out, loss);
                 } else {
                     var current_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_idx}));
                     const previous_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_idx + 1}));
-                    current_layer.backwards(previous_layer.grad, previous_layer.weights, structure[@intCast(layer_idx + 1)].NUM_OUTPUTS);
+                    current_layer.backwards(previous_layer.grad, previous_layer.weights, network_layers[@intCast(layer_idx + 1)].num_outputs);
                 }
             }
 
-            inline for (0..structure.len) |layer| {
+            inline for (0..network_layers.len) |layer| {
+                const current_layer = &@field(self.layers, std.fmt.comptimePrint("{}", .{layer}));
                 if (layer == 0) {
-                    self.layers.@"0".update_weights(self.last_inputs, rate);
+                    current_layer.update_weights(self.last_inputs, rate);
                 } else {
                     const prev_outputs = @field(self.layers, std.fmt.comptimePrint("{}", .{layer - 1})).last_outputs;
-                    @field(self.layers, std.fmt.comptimePrint("{}", .{layer})).update_weights(prev_outputs, rate);
+                    current_layer.update_weights(prev_outputs, rate);
                 }
             }
 
             return total_loss;
-        }
-
-        /// Prints info about the network to the console.
-        pub fn network_info(self: *@This()) void {
-            std.log.info("=============Network structure=============", .{});
-            inline for (structure, 0..) |layer, layer_idx| {
-                const in, const outs, const str, const activation = LayerInfo(layer);
-                std.log.info("Layer #{} : Type={s} | Inputs={} | Outputs={} | Activation={s}", .{ layer_idx, str, in, outs, activation });
-            }
-
-            std.log.info("==============Network weights==============", .{});
-            inline for (0..structure.len) |layer_index| {
-                const weights = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_index})).weights;
-                const biases = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_index})).biases;
-                std.log.info("Layer #{} Weights: {any}", .{ layer_index, weights });
-                std.log.info("Layer #{} Biases: {any}", .{ layer_index, biases });
-            }
         }
     };
 }

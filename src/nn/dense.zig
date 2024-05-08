@@ -19,11 +19,6 @@ pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime acti
         /// Gradient values for backpropagation.
         grad: []f32 = &[_]f32{},
 
-        pub const NUM_INPUTS = num_in;
-        pub const NUM_OUTPUTS = num_out;
-        pub const LAYER_TYPE = "DENSE";
-        pub const LAYER_ACTIVATION = activation.name;
-
         pub const LAYER_INFO: meta.LayerInfo = .{
             .num_inputs = num_in,
             .num_outputs = num_out,

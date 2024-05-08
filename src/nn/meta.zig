@@ -34,7 +34,7 @@ pub fn LayerInfoOf(layer: anytype) LayerInfo {
 }
 
 /// Ensures the specified type adheres to the layer API.
-pub fn Layer(layer: type) type {
+pub fn Layer(layer: type) LayerInfo {
     const layer_info = LayerInfoOf(layer);
 
     // layer base functions
@@ -70,5 +70,5 @@ pub fn Layer(layer: type) type {
             @compileError("Missing `grad` field in layer");
     }
 
-    return layer;
+    return layer_info;
 }
