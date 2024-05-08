@@ -7,12 +7,15 @@ pub const Activation = struct {
     apply: fn (f32, []f32) f32,
     ///Applies the derivative of the activation function w.r.t the output.
     apply_derivative: fn (f32, []f32) f32,
+    /// Name of this activation function. Used for display purposes.
+    name: [:0]const u8,
 };
 
 /// Linear activation function
 pub const Linear: Activation = .{
     .apply = linear_activation,
     .apply_derivative = linear_derivative,
+    .name = @tagName(.linear),
 };
 
 fn linear_activation(in: f32, _: []f32) f32 {
@@ -27,6 +30,7 @@ fn linear_derivative(out: f32, _: []f32) f32 {
 pub const ReLu: Activation = .{
     .apply = relu_activation,
     .apply_derivative = relu_derivative,
+    .name = @tagName(.relu),
 };
 
 fn relu_activation(in: f32, _: []f32) f32 {
@@ -41,6 +45,7 @@ fn relu_derivative(out: f32, _: []f32) f32 {
 pub const Sigmoid: Activation = .{
     .apply = sigmoid_activation,
     .apply_derivative = sigmoid_derivative,
+    .name = @tagName(.sigmoid),
 };
 
 fn sigmoid_activation(in: f32, _: []f32) f32 {
@@ -55,6 +60,7 @@ fn sigmoid_derivative(out: f32, _: []f32) f32 {
 pub const Heaviside: Activation = .{
     .apply = heaviside_activation,
     .apply_derivative = heaviside_derivative,
+    .name = @tagName(.heaviside),
 };
 
 fn heaviside_activation(in: f32, _: []f32) f32 {
@@ -69,6 +75,7 @@ fn heaviside_derivative(out: f32, _: []f32) f32 {
 pub const Softmax: Activation = .{
     .apply = softmax_activation,
     .apply_derivative = softmax_derivative,
+    .name = @tagName(.softmax),
 };
 
 fn softmax_activation(in: f32, ins: []f32) f32 {

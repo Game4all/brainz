@@ -22,6 +22,7 @@ pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime acti
         pub const NUM_INPUTS = num_in;
         pub const NUM_OUTPUTS = num_out;
         pub const LAYER_TYPE = "DENSE";
+        pub const LAYER_ACTIVATION = activation.name;
 
         /// Initialize the layer with random weights and bias values for the specified number of inputs.
         pub fn init(self: *@This(), allocator: Allocator) !void {

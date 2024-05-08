@@ -2,8 +2,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Loss = @import("loss.zig").Loss;
 
-fn LayerInfo(layer: type) struct { usize, usize, []const u8 } {
-    return .{ @field(layer, "NUM_INPUTS"), @field(layer, "NUM_OUTPUTS"), @field(layer, "LAYER_TYPE") };
+fn LayerInfo(layer: type) struct { usize, usize, []const u8, []const u8 } {
+    return .{ @field(layer, "NUM_INPUTS"), @field(layer, "NUM_OUTPUTS"), @field(layer, "LAYER_TYPE"), @field(layer, "LAYER_ACTIVATION") };
 }
 
 pub fn Network(structure: []type) type {
@@ -88,8 +88,8 @@ pub fn Network(structure: []type) type {
         pub fn network_info(self: *@This()) void {
             std.log.info("=============Network structure=============", .{});
             inline for (structure, 0..) |layer, layer_idx| {
-                const in, const outs, const str = LayerInfo(layer);
-                std.log.info("Layer #{} : Type={s} | Inputs={} | Outputs={}", .{ layer_idx, str, in, outs });
+                const in, const outs, const str, const activation = LayerInfo(layer);
+                std.log.info("Layer #{} : Type={s} | Inputs={} | Outputs={} | Activation={s}", .{ layer_idx, str, in, outs, activation });
             }
 
             std.log.info("==============Network weights==============", .{});
