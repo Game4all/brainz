@@ -2,6 +2,7 @@ const std = @import("std");
 pub const math = @import("math.zig");
 pub const activation = @import("nn/activation.zig");
 pub const loss = @import("nn/loss.zig");
+pub const meta = @import("nn/meta.zig");
 
 pub const DenseLayer = @import("nn/dense.zig").DenseLayer;
 pub const Network = @import("nn/network.zig").Network;

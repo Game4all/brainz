@@ -68,7 +68,7 @@ pub fn Network(structure: []type) type {
                 } else {
                     var current_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_idx}));
                     const previous_layer = @field(self.layers, std.fmt.comptimePrint("{}", .{layer_idx + 1}));
-                    current_layer.backwards(previous_layer.gamma, previous_layer.weights, structure[@intCast(layer_idx + 1)].NUM_OUTPUTS);
+                    current_layer.backwards(previous_layer.grad, previous_layer.weights, structure[@intCast(layer_idx + 1)].NUM_OUTPUTS);
                 }
             }
 
