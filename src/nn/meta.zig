@@ -47,6 +47,9 @@ pub fn Layer(layer: type) LayerInfo {
     if (!std.meta.hasMethod(layer, "forward"))
         @compileError("Missing `forward` method in layer");
 
+    if (!@hasField(layer, "last_outputs"))
+        @compileError("Missing `last_outputs` field in layer");
+
     // functions for layers with trainable parameters (weights and biases)
     if (layer_info.has_weights) {
         if (!std.meta.hasMethod(layer, "init_weights"))
