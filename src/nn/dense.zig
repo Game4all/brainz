@@ -24,6 +24,7 @@ pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime acti
             .num_outputs = num_out,
             .has_weights = true,
             .kind = @tagName(.dense),
+            .activation = activation,
         };
 
         /// Initialize the layer with random weights and bias values for the specified number of inputs.

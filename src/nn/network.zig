@@ -17,7 +17,7 @@ fn NetworkInner(comptime network_layers: []const meta.LayerInfo, comptime layer_
         last_inputs: []f32 = &[_]f32{},
 
         /// Information about all the layers in this network.
-        const LAYERS: []const meta.LayerInfo = network_layers;
+        pub const LAYERS: []const meta.LayerInfo = network_layers;
 
         /// Initialize the network with random weights and biases
         pub fn init(self: *@This(), alloc: std.mem.Allocator) !void {
