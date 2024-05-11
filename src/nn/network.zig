@@ -8,10 +8,12 @@ pub fn Network(comptime layer_types: []const type) type {
     inline for (&layers, layer_types) |*layer, ty|
         layer.* = meta.Layer(ty);
 
-    return NetworkInner(&layers, layer_types);
+    const layer_info = layers;
+
+    return NetworkInner(&layer_info, layer_types);
 }
 
-fn NetworkInner(comptime network_layers: []const meta.LayerInfo, comptime layer_types: []const type) type {
+fn NetworkInner(network_layers: []const meta.LayerInfo, comptime layer_types: []const type) type {
     return struct {
         layers: std.meta.Tuple(layer_types) = undefined,
         last_inputs: []f32 = &[_]f32{},

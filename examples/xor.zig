@@ -7,10 +7,10 @@ pub fn main() !void {
 
     const alloc = gpa.allocator();
 
-    const MLP = brainz.Network(@constCast(&[_]type{
+    const MLP = brainz.Network(&[_]type{
         brainz.DenseLayer(2, 2, brainz.activation.Sigmoid),
         brainz.DenseLayer(2, 1, brainz.activation.Sigmoid),
-    }));
+    });
 
     var net: MLP = .{};
     try net.init(alloc);
