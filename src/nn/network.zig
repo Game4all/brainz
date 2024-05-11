@@ -15,6 +15,7 @@ pub fn Network(comptime layer_types: []const type) type {
 
 fn NetworkInner(network_layers: []const meta.LayerInfo, comptime layer_types: []const type) type {
     return struct {
+        /// The layers of this network represented as a tuple type.
         layers: std.meta.Tuple(layer_types) = undefined,
         last_inputs: []f32 = &[_]f32{},
 
@@ -63,6 +64,7 @@ fn NetworkInner(network_layers: []const meta.LayerInfo, comptime layer_types: []
             return last_outputs;
         }
 
+        /// Performs backpropagation through the network and updates the weights.
         pub fn backwards(self: *@This(), expected_out: []f32, rate: f32, loss: Loss) f32 {
             const num_layers: i32 = @intCast(network_layers.len - 1);
             comptime var layer_idx = num_layers;
