@@ -111,7 +111,7 @@ pub fn DenseLayer(comptime num_in: usize, comptime num_out: usize, comptime acti
             for (self.biases, self.grad, 0..) |*bias, loss, n_idx| {
                 const w_grad = loss * rate;
                 for (0..num_in) |weight_index|
-                    self.weights[n_idx * num_in + weight_index] = self.weights[n_idx * num_in + weight_index] + w_grad * inputs[weight_index];
+                    self.weights[n_idx * num_in + weight_index] += w_grad * inputs[weight_index];
 
                 bias.* += w_grad;
             }
