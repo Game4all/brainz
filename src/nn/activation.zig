@@ -4,9 +4,9 @@ const std = @import("std");
 pub const Activation = struct {
     ///TODO: consider applying activation in bulk fashion to leverage SIMD optimizations.
     /// Applies the activation function to the input.
-    apply: fn (f32, []f32) f32,
+    apply: *const fn (f32, []f32) f32,
     ///Applies the derivative of the activation function w.r.t the output.
-    apply_derivative: fn (f32, []f32) f32,
+    apply_derivative: *const fn (f32, []f32) f32,
     /// Name of this activation function. Used for display purposes.
     name: [:0]const u8,
 };

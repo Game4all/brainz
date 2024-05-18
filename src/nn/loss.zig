@@ -6,8 +6,8 @@ const F32_MIN_VALUE = std.math.floatMin(f32);
 
 /// A usable loss function.
 pub const Loss = struct {
-    compute: fn (f32, f32) f32,
-    compute_derivative: fn (f32, f32) f32,
+    compute: *const fn (f32, f32) f32,
+    compute_derivative: *const fn (f32, f32) f32,
 };
 
 /// Mean Squared Error or L2 loss.
