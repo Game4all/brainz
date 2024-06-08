@@ -5,13 +5,13 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const lib = b.addModule("brainz", .{
-        .root_source_file = .{ .path = "src/root.zig" },
+        .root_source_file = b.path("src/root.zig"),
         .optimize = optimize,
         .target = target,
     });
 
     const lib_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/root.zig" },
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) void {
     const xor_example = b.addExecutable(.{
         .optimize = optimize,
         .target = target,
-        .root_source_file = .{ .path = "examples/xor.zig" },
+        .root_source_file = b.path("examples/xor.zig"),
         .name = "xor_example",
     });
 
@@ -39,7 +39,7 @@ pub fn build(b: *std.Build) void {
     const lin_reg_example = b.addExecutable(.{
         .optimize = optimize,
         .target = target,
-        .root_source_file = .{ .path = "examples/linear_regression.zig" },
+        .root_source_file = b.path("examples/linear_regression.zig"),
         .name = "lin_reg_example",
     });
 
@@ -53,7 +53,7 @@ pub fn build(b: *std.Build) void {
     const classification_example = b.addExecutable(.{
         .optimize = optimize,
         .target = target,
-        .root_source_file = .{ .path = "examples/classification.zig" },
+        .root_source_file = b.path("examples/classification.zig"),
         .name = "classification",
     });
 
