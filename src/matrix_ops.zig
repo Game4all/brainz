@@ -57,6 +57,18 @@ pub fn add(comptime ty: type, mat1: *Matrix(ty), mat2: *Matrix(ty), result: *Mat
     }
 }
 
+/// Performs addition of two matrices.
+pub fn sub(comptime ty: type, mat1: *Matrix(ty), mat2: *Matrix(ty), result: *Matrix(ty)) void {
+    std.debug.assert(mat1.shape[0] == mat2.shape[0] and mat1.shape[1] == mat2.shape[1]);
+    std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
+
+    for (0..result.shape[0]) |i| {
+        for (0..result.shape[1]) |j| {
+            result.set(.{ i, j }, mat1.get(.{ i, j }) - mat2.get(.{ i, j }));
+        }
+    }
+}
+
 /// Performs the hadamard product aka element-wise multiplication of two matrices.
 pub fn hadamard(comptime ty: type, mat1: *Matrix(ty), mat2: *Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(mat1.shape[0] == mat2.shape[0] and mat1.shape[1] == mat2.shape[1]);
@@ -90,30 +102,6 @@ pub fn sum(comptime ty: type, mat1: *Matrix(ty)) ty {
         summed += v;
 
     return summed;
-}
-
-/// Performs softmax activation on the matrix.
-pub fn softmax(comptime ty: type, mat1: *Matrix(ty), result: *Matrix(ty)) void {
-    std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
-
-    exp(ty, mat1, &result);
-    const s = sum(ty, result);
-    for (result.storage.as_slice()) |*v|
-        v.* = v.* / s;
-}
-
-/// Performs sigmoid activation on the matrix.
-pub fn sigmoid(comptime ty: type, mat1: *Matrix(ty), result: *Matrix(ty)) void {
-    std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
-    for (mat1.storage.as_slice(), result.storage.as_slice()) |v, *r|
-        r.* = 1.0 / (1.0 + std.math.exp(-v));
-}
-
-/// Performs ReLU activation on the matrix.
-pub fn relu(comptime ty: type, mat1: *Matrix(ty), result: *Matrix(ty)) void {
-    std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
-    for (mat1.storage.as_slice(), result.storage.as_slice()) |v, *r|
-        r.* = @max(0, v);
 }
 
 test "matrix op shape checking" {

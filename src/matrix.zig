@@ -74,6 +74,11 @@ pub fn Matrix(dtype: type) type {
             };
         }
 
+        /// Returns a slice representing the contents of this matrix.
+        pub inline fn to_slice(self: *@This()) []dtype {
+            return self.storage.as_slice();
+        }
+
         /// Frees the values.
         pub fn deinit(self: *@This()) void {
             self.storage.deinit();
