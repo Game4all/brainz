@@ -109,6 +109,13 @@ pub fn sigmoid(comptime ty: type, mat1: *Matrix(ty), result: *Matrix(ty)) void {
         r.* = 1.0 / (1.0 + std.math.exp(-v));
 }
 
+/// Performs ReLU activation on the matrix.
+pub fn relu(comptime ty: type, mat1: *Matrix(ty), result: *Matrix(ty)) void {
+    std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
+    for (mat1.storage.as_slice(), result.storage.as_slice()) |v, *r|
+        r.* = @max(0, v);
+}
+
 test "matrix op shape checking" {
     const shape_A = .{ 3, 1 };
     const shape_B = .{ 3, 1 };
