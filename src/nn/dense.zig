@@ -1,6 +1,3 @@
-const math = @import("../math.zig");
-const Df32 = math.Df32;
-
 const std = @import("std");
 const Activation = @import("activation.zig").Activation;
 const Allocator = std.mem.Allocator;
