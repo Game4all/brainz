@@ -64,6 +64,11 @@ pub fn Matrix(dtype: type) type {
             self.storage.set(pos.@"0" * self.strides.@"0" + pos.@"1" * self.strides.@"1", value);
         }
 
+        /// Fills the matrix with the specified value.
+        pub inline fn fill(self: *@This(), val: dtype) void {
+            @memset(self.get_mut_slice(), val);
+        }
+
         /// Returns the transposed matrix.
         /// NOTE: The transposed matrix shares the same storage as the original matrix.
         pub inline fn transpose(self: *@This()) @This() {
