@@ -23,8 +23,9 @@ fn linear_activation(in: *Matrix(f32), _: *Matrix(f32)) *Matrix(f32) {
     return in;
 }
 
-fn linear_derivative(in: *Matrix(f32), _: *Matrix(f32)) *Matrix(f32) {
-    return in;
+fn linear_derivative(_: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+    out.fill(1.0);
+    return out;
 }
 
 /// REctified Linear Unit (ReLu) activation function
@@ -81,8 +82,9 @@ fn heaviside_activation(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
     return out;
 }
 
-fn heaviside_derivative(_: *Matrix(f32), _: *Matrix(f32)) *Matrix(f32) {
-    @panic("Heaviside isn't well-defined for derivation.");
+fn heaviside_derivative(_: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+    out.fill(1.0);
+    return out;
 }
 
 /// Softmax activation function
