@@ -47,8 +47,8 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
             self.activation_outputs = try Matrix(f32).empty(self.last_outputs.shape, alloc);
             self.grad = try Matrix(f32).empty(self.last_outputs.shape, alloc);
 
-            @memcpy(self.weights.to_slice(), w);
-            @memcpy(self.biases.to_slice(), b);
+            @memcpy(self.weights.get_mut_slice(), w);
+            @memcpy(self.biases.get_mut_slice(), b);
         }
 
         /// Performs forward propagation through this layer.
@@ -138,8 +138,8 @@ test "basic xor mlp" {
     };
 
     for (ins, outputs) |in, outs| {
-        @memcpy(inputs.to_slice(), @constCast(&in));
+        @memcpy(inputs.get_mut_slice(), @constCast(&in));
         const prediction = xor_mlp.forward(&inputs);
-        try std.testing.expectEqualSlices(f32, &outs, prediction.to_slice());
+        try std.testing.expectEqualSlices(f32, &outs, prediction.get_slice());
     }
 }

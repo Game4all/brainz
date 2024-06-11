@@ -4,7 +4,7 @@ pub const activation = @import("activation.zig");
 pub const loss = @import("loss.zig");
 
 pub const matrix = @import("matrix.zig");
-pub const ops = @import("matrix_ops.zig");
+pub const ops = @import("ops.zig");
 
 pub const Dense = @import("dense.zig").Dense;
 pub const Matrix = matrix.Matrix;

@@ -30,7 +30,7 @@ pub fn opResultShape(comptime op: BinaryOp, shape1: struct { usize, usize }, sha
 }
 
 /// Performs matrix multiplication between two matrices.
-pub fn mul(comptime ty: type, mat1: *Matrix(ty), mat2: *Matrix(ty), result: *Matrix(ty)) void {
+pub fn mul(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(mat1.shape[1] == mat2.shape[0]);
     std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat2.shape[1]);
 
@@ -46,7 +46,7 @@ pub fn mul(comptime ty: type, mat1: *Matrix(ty), mat2: *Matrix(ty), result: *Mat
 }
 
 /// Performs addition of two matrices.
-pub fn add(comptime ty: type, mat1: *Matrix(ty), mat2: *Matrix(ty), result: *Matrix(ty)) void {
+pub fn add(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(mat1.shape[0] == mat2.shape[0] and mat1.shape[1] == mat2.shape[1]);
     std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
 
@@ -57,8 +57,8 @@ pub fn add(comptime ty: type, mat1: *Matrix(ty), mat2: *Matrix(ty), result: *Mat
     }
 }
 
-/// Performs addition of two matrices.
-pub fn sub(comptime ty: type, mat1: *Matrix(ty), mat2: *Matrix(ty), result: *Matrix(ty)) void {
+/// Performs substraction of two matrices.
+pub fn sub(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(mat1.shape[0] == mat2.shape[0] and mat1.shape[1] == mat2.shape[1]);
     std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
 
@@ -70,7 +70,7 @@ pub fn sub(comptime ty: type, mat1: *Matrix(ty), mat2: *Matrix(ty), result: *Mat
 }
 
 /// Performs the hadamard product aka element-wise multiplication of two matrices.
-pub fn hadamard(comptime ty: type, mat1: *Matrix(ty), mat2: *Matrix(ty), result: *Matrix(ty)) void {
+pub fn hadamard(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(mat1.shape[0] == mat2.shape[0] and mat1.shape[1] == mat2.shape[1]);
     std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
 
@@ -82,23 +82,23 @@ pub fn hadamard(comptime ty: type, mat1: *Matrix(ty), mat2: *Matrix(ty), result:
 }
 
 /// Performs exponentiation on the specified matrix.
-pub fn exp(comptime ty: type, mat1: *Matrix(ty), result: *Matrix(ty)) void {
+pub fn exp(comptime ty: type, mat1: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
-    for (mat1.storage.as_slice(), result.storage.as_slice()) |v, *r|
+    for (mat1.storage.get_slice(), result.storage.get_mut_slice()) |v, *r|
         r.* = std.math.exp(v);
 }
 
 /// Performs log()
-pub fn log(comptime ty: type, mat1: *Matrix(ty), result: *Matrix(ty)) void {
+pub fn log(comptime ty: type, mat1: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
-    for (mat1.storage.as_slice(), result.storage.as_slice()) |v, *r|
+    for (mat1.storage.get_slice(), result.storage.get_slice()) |v, *r|
         r.* = @log(v);
 }
 
 /// Sums the values of the matrix.
-pub fn sum(comptime ty: type, mat1: *Matrix(ty)) ty {
+pub fn sum(comptime ty: type, mat1: *const Matrix(ty)) ty {
     var summed: ty = 0;
-    for (mat1.storage.as_slice()) |v|
+    for (mat1.storage.get_slice()) |v|
         summed += v;
 
     return summed;

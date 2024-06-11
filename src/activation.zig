@@ -1,6 +1,6 @@
 const std = @import("std");
 const Matrix = @import("matrix.zig").Matrix;
-const ops = @import("matrix_ops.zig");
+const ops = @import("ops.zig");
 
 /// Represents an activation function.
 pub const Activation = struct {
@@ -35,7 +35,7 @@ pub const ReLu: Activation = .{
 };
 
 fn relu_activation(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.storage.as_slice(), out.storage.as_slice()) |v, *r|
+    for (in.storage.get_slice(), out.storage.get_slice()) |v, *r|
         r.* = @max(0, v);
     return out;
 }
@@ -54,7 +54,7 @@ pub const Sigmoid: Activation = .{
 };
 
 fn sigmoid_activation(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.storage.as_slice(), out.storage.as_slice()) |v, *r|
+    for (in.storage.get_slice(), out.storage.get_slice()) |v, *r|
         r.* = 1.0 / (1.0 + std.math.exp(-v));
     return out;
 }
@@ -75,7 +75,7 @@ pub const Heaviside: Activation = .{
 };
 
 fn heaviside_activation(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.to_slice(), out.to_slice()) |i, *o| {
+    for (in.get_slice(), out.get_mut_slice()) |i, *o| {
         o.* = @max(std.math.sign(i), 0);
     }
     return out;
@@ -95,14 +95,14 @@ pub const Softmax: Activation = .{
 fn softmax_activation(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
     ops.exp(f32, in, out);
     const s = ops.sum(f32, out);
-    for (out.storage.as_slice()) |*v|
+    for (out.storage.get_mut_slice()) |*v|
         v.* = v.* / s;
     return out;
 }
 
 fn softmax_derivative(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
     // return in * (1.0 - in);
-    for (in.to_slice(), out.to_slice()) |i, *o| {
+    for (in.get_slice(), out.get_mut_slice()) |i, *o| {
         const A = (1.0 / (1.0 + std.math.exp(-i)));
         o.* = A * (1.0 - A);
     }
