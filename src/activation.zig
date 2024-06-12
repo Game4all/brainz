@@ -5,9 +5,9 @@ const ops = @import("ops.zig");
 /// Represents an activation function.
 pub const Activation = struct {
     /// Applies the activation function to the input.
-    apply: *const fn (*Matrix(f32), *Matrix(f32)) *Matrix(f32),
+    apply: *const fn (*const Matrix(f32), *Matrix(f32)) *Matrix(f32),
     ///Applies the derivative of the activation function w.r.t the inputs.
-    apply_derivative: *const fn (*Matrix(f32), *Matrix(f32)) *Matrix(f32),
+    apply_derivative: *const fn (*const Matrix(f32), *Matrix(f32)) *Matrix(f32),
     /// Name of this activation function. Used for display purposes.
     name: [:0]const u8,
 };
@@ -19,11 +19,11 @@ pub const Linear: Activation = .{
     .name = @tagName(.linear),
 };
 
-fn linear_activation(in: *Matrix(f32), _: *Matrix(f32)) *Matrix(f32) {
-    return in;
+fn linear_activation(in: *const Matrix(f32), _: *Matrix(f32)) *Matrix(f32) {
+    return @constCast(in);
 }
 
-fn linear_derivative(_: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn linear_derivative(_: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
     out.fill(1.0);
     return out;
 }
@@ -35,14 +35,14 @@ pub const ReLu: Activation = .{
     .name = @tagName(.relu),
 };
 
-fn relu_activation(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.storage.get_slice(), out.storage.get_slice()) |v, *r|
+fn relu_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+    for (in.get_slice(), out.get_slice()) |v, *r|
         r.* = @max(0, v);
     return out;
 }
 
-fn relu_derivative(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.to_slice(), out.to_slice()) |i, *o|
+fn relu_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+    for (in.get_slice(), out.get_slice()) |i, *o|
         o.* = @max(0, std.math.sign(i));
     return out;
 }
@@ -54,14 +54,14 @@ pub const Sigmoid: Activation = .{
     .name = @tagName(.sigmoid),
 };
 
-fn sigmoid_activation(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.storage.get_slice(), out.storage.get_slice()) |v, *r|
+fn sigmoid_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+    for (in.get_slice(), out.get_mut_slice()) |v, *r|
         r.* = 1.0 / (1.0 + std.math.exp(-v));
     return out;
 }
 
-fn sigmoid_derivative(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.to_slice(), out.to_slice()) |i, *o| {
+fn sigmoid_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+    for (in.get_slice(), out.get_mut_slice()) |i, *o| {
         const A = (1.0 / (1.0 + std.math.exp(-i)));
         o.* = A * (1.0 - A);
     }
@@ -75,14 +75,14 @@ pub const Heaviside: Activation = .{
     .name = @tagName(.heaviside),
 };
 
-fn heaviside_activation(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn heaviside_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
     for (in.get_slice(), out.get_mut_slice()) |i, *o| {
         o.* = @max(std.math.sign(i), 0);
     }
     return out;
 }
 
-fn heaviside_derivative(_: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn heaviside_derivative(_: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
     out.fill(1.0);
     return out;
 }
@@ -94,21 +94,21 @@ pub const Softmax: Activation = .{
     .name = @tagName(.softmax),
 };
 
-fn softmax_activation(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn softmax_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
     ops.exp(f32, in, out);
     const s = ops.sum(f32, out);
-    for (out.storage.get_mut_slice()) |*v|
+    for (out.get_mut_slice()) |*v|
         v.* = v.* / s;
     return out;
 }
 
-fn softmax_derivative(in: *Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn softmax_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
     // return in * (1.0 - in);
     for (in.get_slice(), out.get_mut_slice()) |i, *o| {
         const A = (1.0 / (1.0 + std.math.exp(-i)));
         o.* = A * (1.0 - A);
     }
-    return in;
+    return out;
 }
 
 test "softmax activation" {
@@ -124,4 +124,19 @@ test "softmax activation" {
 
     _ = Softmax.apply(&test_mat, &softmax_mat);
     try std.testing.expectEqual(1.0, ops.sum(f32, &softmax_mat));
+}
+
+test "sigmoid activation" {
+    var test_mat = try Matrix(f32).with_value(.{ 3, 1 }, 1.0, std.testing.allocator);
+    defer test_mat.deinit();
+
+    var sigmoid_mat = try Matrix(f32).empty(test_mat.shape, std.testing.allocator);
+    defer sigmoid_mat.deinit();
+
+    _ = Sigmoid.apply(&test_mat, &sigmoid_mat);
+    try std.testing.expectEqual(2.19317573589, ops.sum(f32, &sigmoid_mat));
+
+    test_mat.fill(0.0);
+    _ = Sigmoid.apply(&test_mat, &sigmoid_mat);
+    try std.testing.expectEqual(1.5, ops.sum(f32, &sigmoid_mat));
 }
