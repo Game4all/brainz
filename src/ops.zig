@@ -45,6 +45,12 @@ pub fn mul(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), 
     }
 }
 
+/// Performs a scalar to matrix multiplication.
+pub fn mul_scalar(comptime ty: type, mat1: *const Matrix(ty), scalar: ty, result: *Matrix(ty)) void {
+    for (mat1.get_slice(), result.get_mut_slice()) |v, *r|
+        r.* = v * scalar;
+}
+
 /// Performs addition of two matrices.
 pub fn add(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(mat1.shape[0] == mat2.shape[0] and mat1.shape[1] == mat2.shape[1]);
