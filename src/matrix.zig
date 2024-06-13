@@ -39,7 +39,7 @@ pub fn Matrix(dtype: type) type {
         /// Creates a matrix with all its values initialized with a RNG.
         pub fn random(dims: struct { usize, usize }, rng: Random, allocator: Allocator) !@This() {
             var storage = try Storage(dtype).create_owned(dims, allocator);
-            for (storage.get_slice()) |*val|
+            for (storage.get_mut_slice()) |*val|
                 val.* = rng.floatNorm(dtype);
 
             return @This(){
@@ -102,7 +102,7 @@ pub fn Matrix(dtype: type) type {
             for (0..shape[0]) |i| {
                 try writer.print(" [", .{});
                 for (0..shape[1]) |j| {
-                    _ = try writer.print(" {e:.02}", .{dat.get(.{ i, j })});
+                    _ = try writer.print(" {e:.03}", .{dat.get(.{ i, j })});
                     _ = try writer.write(",");
                 }
                 try writer.print("]\n\r", .{});

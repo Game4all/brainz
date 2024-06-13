@@ -29,8 +29,8 @@ fn mse_loss(input: *const Matrix(f32), target: *const Matrix(f32)) f32 {
 }
 
 fn mse_derivative(in: *const Matrix(f32), target: *const Matrix(f32), result: *Matrix(f32)) void {
-    ops.sub(f32, target, in, result);
-    return result;
+    ops.sub(f32, in, target, result);
+    return;
 }
 
 /// Binary cross entropy.

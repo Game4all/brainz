@@ -36,13 +36,13 @@ pub const ReLu: Activation = .{
 };
 
 fn relu_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.get_slice(), out.get_slice()) |v, *r|
+    for (in.get_slice(), out.get_mut_slice()) |v, *r|
         r.* = @max(0, v);
     return out;
 }
 
 fn relu_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.get_slice(), out.get_slice()) |i, *o|
+    for (in.get_slice(), out.get_mut_slice()) |i, *o|
         o.* = @max(0, std.math.sign(i));
     return out;
 }

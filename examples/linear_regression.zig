@@ -1,51 +1,85 @@
 const std = @import("std");
 const brainz = @import("brainz");
 
+const Mat = brainz.Matrix;
+
+const inputs = [_][1]f32{
+    [1]f32{0.0},
+    [1]f32{1.0},
+    [1]f32{3.0},
+    [1]f32{9.0},
+};
+
+// outputs follow f(x)=2x + 1
+const outputs = [_][1]f32{
+    [1]f32{1.0},
+    [1]f32{3.0},
+    [1]f32{7.0},
+    [1]f32{19.0},
+};
+
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    var heap = std.heap.HeapAllocator.init();
+    defer heap.deinit();
 
-    const alloc = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(heap.allocator());
+    defer arena.deinit();
 
-    // Performs linear regression using a neural network.
-    // by adding more layers with different activation functions, you could have the network imitate a more complex function.
-    const RegNetwork = brainz.Network(@constCast(&[_]type{
-        brainz.DenseLayer(1, 1, brainz.activation.Linear),
-    }));
+    const alloc = arena.allocator();
 
-    var lin_reg: RegNetwork = .{};
-    try lin_reg.init(alloc);
+    var dense: brainz.Dense(1, 1, brainz.activation.Linear) = undefined;
+    try dense.init(alloc);
 
-    const inputs = [_][1]f32{
-        [1]f32{0.0},
-        [1]f32{1.0},
-        [1]f32{3.0},
-        [1]f32{9.0},
-    };
+    const loss = brainz.loss.MSE;
 
-    // outputs follow f(x)=2x + 1
-    const outputs = [_][1]f32{
-        [1]f32{1.0},
-        [1]f32{3.0},
-        [1]f32{7.0},
-        [1]f32{19.0},
-    };
+    var out = std.io.getStdOut().writer();
 
-    for (0..5000) |i| {
-        var e: f32 = 0.0;
-        for (inputs, outputs) |in, out| {
-            _ = lin_reg.forward(@constCast(&in));
-            e += lin_reg.backwards(@constCast(&out), 0.001, brainz.loss.MSE);
+    // contains the expected value for backprop
+    var expected_mat = try Mat(f32).empty(.{ 1, 1 }, alloc);
+    // contains the computed loss gradient
+    var loss_grad = try Mat(f32).empty(.{ 1, 1 }, alloc);
+
+    // contains the input of the network
+    var input_mat = try Mat(f32).empty(.{ 1, 1 }, alloc);
+    var input_transposed = input_mat.transpose();
+
+    // contains the gradient wrt to the weights
+    var weights_grad = try Mat(f32).empty(.{ 1, 1 }, alloc);
+
+    // train for 100 epochs.
+    for (0..100) |_| {
+        for (inputs, outputs) |i, o| {
+            @memcpy(input_mat.get_mut_slice(), @constCast(&i));
+            @memcpy(expected_mat.get_mut_slice(), @constCast(&o));
+
+            const result = dense.forward(&input_mat);
+            const loss_val = loss.compute(result, &expected_mat);
+            loss.compute_derivative(result, &expected_mat, &loss_grad);
+
+            // compute the gradients for the layer.
+            // they are stored in the `.grad` field.
+            _ = dense.backwards(&loss_grad);
+            brainz.ops.mul_scalar(f32, &dense.grad, 0.1, &dense.grad); // scale the error gradient by 0.1 so we don't have to do it twice for the weight and bias update.
+
+            // compute the grad wrt to the weights.
+            brainz.ops.mul(f32, &dense.grad, &input_transposed, &weights_grad);
+
+            // update the weights
+            brainz.ops.sub(f32, &dense.weights, &weights_grad, &dense.weights); // Wnew = Wold - Wgrad;
+            // update the bias
+            brainz.ops.sub(f32, &dense.biases, &dense.grad, &dense.biases); // Bnew = Bold - grad;
+
+            try out.print("\rloss: {}\t\t", .{loss_val});
         }
-
-        if (i % 50 == 0)
-            std.log.info("loss: {}", .{e});
     }
 
-    for (inputs, outputs) |ins, outs| {
-        const prediction = lin_reg.forward(@constCast(&ins));
-        std.log.info("Pred for {any} = {any} (real: {any})", .{ ins, prediction, outs });
-    }
+    try out.print("\rTraining done.                   \n", .{});
 
-    defer lin_reg.deinit(alloc);
+    for (inputs, outputs) |i, o| {
+        @memcpy(input_mat.get_mut_slice(), @constCast(&i));
+        @memcpy(expected_mat.get_mut_slice(), @constCast(&o));
+
+        const result = dense.forward(&input_mat);
+        try out.print("output: {} | expected: {} \n", .{ result.get(.{ 0, 0 }), expected_mat.get(.{ 0, 0 }) });
+    }
 }
