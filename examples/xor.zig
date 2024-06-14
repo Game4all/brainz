@@ -24,7 +24,7 @@ const XorMLP = struct {
     weight_grad_1: Matrix(f32),
     weight_grad_2: Matrix(f32),
 
-    pub fn forward(self: *@This(), input: *Matrix(f32)) *Matrix(f32) {
+    pub fn forward(self: *@This(), input: *const Matrix(f32)) *Matrix(f32) {
         const a = self.layer_1.forward(input);
         return self.layer_2.forward(a);
     }
@@ -99,8 +99,8 @@ pub fn main() !void {
 
     for (0..50_000) |_| {
         for (inputs, outputs) |i, o| {
-            @memcpy(input_mat.get_mut_slice(), @constCast(&i));
-            @memcpy(expected_mat.get_mut_slice(), @constCast(&o));
+            input_mat.set_data(@constCast(&i));
+            expected_mat.set_data(@constCast(&o));
 
             const result = mlp.forward(&input_mat);
 
@@ -112,8 +112,8 @@ pub fn main() !void {
     }
 
     for (inputs, outputs) |i, o| {
-        @memcpy(input_mat.get_mut_slice(), @constCast(&i));
-        @memcpy(expected_mat.get_mut_slice(), @constCast(&o));
+        input_mat.set_data(@constCast(&i));
+        expected_mat.set_data(@constCast(&o));
 
         const result = mlp.forward(&input_mat);
         const loss = BCE.compute(result, &expected_mat);

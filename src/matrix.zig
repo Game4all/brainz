@@ -69,6 +69,12 @@ pub fn Matrix(dtype: type) type {
             @memset(self.get_mut_slice(), val);
         }
 
+        /// Fills the matrix with the specified slice.
+        pub inline fn set_data(self: *@This(), data: []const dtype) void {
+            std.debug.assert(data.len == self.get_slice().len);
+            @memcpy(self.get_mut_slice(), data);
+        }
+
         /// Returns the transposed matrix.
         /// NOTE: The transposed matrix shares the same storage as the original matrix.
         pub inline fn transpose(self: *const @This()) @This() {

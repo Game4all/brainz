@@ -62,7 +62,7 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
         }
 
         /// Performs forward propagation through this layer.
-        pub fn forward(self: *@This(), inputs: *Matrix(f32)) *Matrix(f32) {
+        pub fn forward(self: *@This(), inputs: *const Matrix(f32)) *Matrix(f32) {
             // perform linear combination
             root.ops.mul(f32, &self.weights, inputs, &self.last_outputs);
             root.ops.add(f32, &self.biases, &self.last_outputs, &self.last_outputs);
