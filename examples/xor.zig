@@ -42,7 +42,7 @@ const XorMLP = struct {
         brainz.ops.mul_scalar(f32, &self.layer_1.grad, lr, &self.layer_1.grad);
         brainz.ops.mul_scalar(f32, &self.layer_2.grad, lr, &self.layer_2.grad);
 
-        // compute the gradients wrt to the weights of the layers for weight update.
+        // compute the actual gradients wrt to the weights of the layers for weight update.
         brainz.ops.mul(f32, &self.layer_1.grad, &layer1_inputs, &self.weight_grad_1);
         brainz.ops.mul(f32, &self.layer_2.grad, &layer2_inputs, &self.weight_grad_2);
 

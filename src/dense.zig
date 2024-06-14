@@ -16,10 +16,10 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
         last_outputs: Matrix(f32),
         /// The last activation outputs of this layer.
         activation_outputs: Matrix(f32),
-        /// Contains the gradients for this layer.
-        /// - Used for updating the weights and biases.
+        /// Contains the error gradient for this layer.
+        /// - Serves as a basis for computing the gradient wrt to the layer weights and biases.
         grad: Matrix(f32),
-        /// Contains the computed error gradient to be used by previous layer for backprop.
+        /// Contains the computed error gradient to be backpropagated.
         backwards_grad: Matrix(f32),
 
         /// Initializes the layer with the given allocator.
@@ -72,10 +72,10 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
         }
 
         /// Performs backwards propagation for a hidden layer.
-        /// - Stores the resulting gradient inside the `grad` variable.
-        /// - Returns the computed err_grad to pass on to the previous layer for backpropagation.
+        /// - Stores the resulting error gradient inside the `grad` variable.
+        /// - Returns the computed err_gradient to pass on for backpropagation.
         pub fn backwards(self: *@This(), err_grad: *const Matrix(f32)) *Matrix(f32) {
-            // compute actual gradient for this layer.
+            // compute actual error gradient for this layer.
             const activ = activation.apply_derivative(&self.last_outputs, &self.grad);
             root.ops.hadamard(f32, activ, err_grad, &self.grad);
 
