@@ -37,7 +37,9 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
             self.last_outputs = try Matrix(f32).empty(try root.ops.opResultShape(.Mul, self.weights.shape, .{ num_in, 1 }), alloc);
             self.activation_outputs = try Matrix(f32).empty(self.last_outputs.shape, alloc);
             self.grad = try Matrix(f32).empty(self.last_outputs.shape, alloc);
-            self.backwards_grad = try Matrix(f32).empty(self.last_outputs.shape, alloc);
+
+            const w_transposed = self.weights.transpose();
+            self.backwards_grad = try Matrix(f32).empty(try root.ops.opResultShape(.Mul, w_transposed.shape, self.grad.shape), alloc);
         }
 
         /// Initializes the layer with the given allocator and given weights.
@@ -49,8 +51,11 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
             self.biases = try Matrix(f32).empty(.{ num_out, 1 }, alloc);
             self.last_outputs = try Matrix(f32).empty(try root.ops.opResultShape(.Mul, self.weights.shape, .{ num_in, 1 }), alloc);
             self.activation_outputs = try Matrix(f32).empty(self.last_outputs.shape, alloc);
+
             self.grad = try Matrix(f32).empty(self.last_outputs.shape, alloc);
-            self.backwards_grad = try Matrix(f32).empty(self.last_outputs.shape, alloc);
+
+            const w_transposed = self.weights.transpose();
+            self.backwards_grad = try Matrix(f32).empty(try root.ops.opResultShape(.Mul, w_transposed.shape, self.grad.shape), alloc);
 
             @memcpy(self.weights.get_mut_slice(), w);
             @memcpy(self.biases.get_mut_slice(), b);
@@ -69,7 +74,7 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
         /// Performs backwards propagation for a hidden layer.
         /// - Stores the resulting gradient inside the `grad` variable.
         /// - Returns the computed err_grad to pass on to the previous layer for backpropagation.
-        pub fn backwards(self: *@This(), err_grad: *Matrix(f32)) *Matrix(f32) {
+        pub fn backwards(self: *@This(), err_grad: *const Matrix(f32)) *Matrix(f32) {
             // compute actual gradient for this layer.
             const activ = activation.apply_derivative(&self.last_outputs, &self.grad);
             root.ops.hadamard(f32, activ, err_grad, &self.grad);

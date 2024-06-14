@@ -71,7 +71,7 @@ pub fn Matrix(dtype: type) type {
 
         /// Returns the transposed matrix.
         /// NOTE: The transposed matrix shares the same storage as the original matrix.
-        pub inline fn transpose(self: *@This()) @This() {
+        pub inline fn transpose(self: *const @This()) @This() {
             return .{
                 .shape = .{ self.shape.@"1", self.shape.@"0" },
                 .strides = .{ self.strides.@"1", self.strides.@"0" },

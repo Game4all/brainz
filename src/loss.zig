@@ -52,9 +52,7 @@ fn bce_loss(input: *const Matrix(f32), target: *const Matrix(f32)) f32 {
 
 fn bce_derivative(input: *const Matrix(f32), target: *const Matrix(f32), result: *Matrix(f32)) void {
     for (input.get_slice(), target.get_slice(), result.get_mut_slice()) |i, t, *r|
-        r.* = -((i + F32_MIN_VALUE - t) / ((i + F32_MIN_VALUE) * (1.0 - i + F32_MIN_VALUE)));
-
-    return result;
+        r.* = ((i + F32_MIN_VALUE - t) / ((i + F32_MIN_VALUE) * (1.0 - i + F32_MIN_VALUE)));
 }
 
 /// Categorical cross entropy.
