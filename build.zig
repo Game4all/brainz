@@ -56,11 +56,12 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("examples/classification.zig"),
         .name = "classification",
     });
+    classification_example.addIncludePath(b.path("examples/"));
 
     classification_example.root_module.addImport("brainz", lib);
 
     var run_classification_example = b.addRunArtifact(classification_example);
 
-    _ = b.step("example_classification", "Runs the classification example")
+    _ = b.step("example_classification", "Runs a classification example trained on real life data")
         .dependOn(&run_classification_example.step);
 }
