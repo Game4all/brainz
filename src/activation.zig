@@ -113,10 +113,10 @@ fn softmax_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
 
 test "softmax activation" {
     var test_mat = try Matrix(f32).empty(.{ 3, 1 }, std.testing.allocator);
-    defer test_mat.deinit();
+    defer test_mat.deinit(std.testing.allocator);
 
     var softmax_mat = try Matrix(f32).empty(test_mat.shape, std.testing.allocator);
-    defer softmax_mat.deinit();
+    defer softmax_mat.deinit(std.testing.allocator);
 
     test_mat.set(.{ 0, 0 }, 1.0);
     test_mat.set(.{ 1, 0 }, 3.0);
@@ -128,10 +128,10 @@ test "softmax activation" {
 
 test "sigmoid activation" {
     var test_mat = try Matrix(f32).withValue(.{ 3, 1 }, 1.0, std.testing.allocator);
-    defer test_mat.deinit();
+    defer test_mat.deinit(std.testing.allocator);
 
     var sigmoid_mat = try Matrix(f32).empty(test_mat.shape, std.testing.allocator);
-    defer sigmoid_mat.deinit();
+    defer sigmoid_mat.deinit(std.testing.allocator);
 
     _ = Sigmoid.apply(&test_mat, &sigmoid_mat);
     try std.testing.expectEqual(2.19317573589, ops.sum(f32, &sigmoid_mat));

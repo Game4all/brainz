@@ -4,6 +4,8 @@ const Random = std.rand.Random;
 const Allocator = std.mem.Allocator;
 
 /// A matrix with M rows and N columns.
+///
+/// NOTE: Matrices should be allocated with an arena allocator as they are designed to be all pre-allocated and freed at once.
 pub fn Matrix(dtype: type) type {
     return struct {
         /// The dimensions of this matrix (M rows x N columns) + the strides for a row and column.
@@ -96,8 +98,8 @@ pub fn Matrix(dtype: type) type {
         }
 
         /// Frees the values.
-        pub fn deinit(self: *@This()) void {
-            self.storage.deinit();
+        pub fn deinit(self: *@This(), allocator: Allocator) void {
+            self.storage.deinit(allocator);
         }
 
         // Format
@@ -128,10 +130,7 @@ pub fn Storage(dtype: type) type {
         /// The storage kind (owns memory or is simply a view to another storage).
         data: union(enum) {
             /// The memory is owned.
-            Owned: struct {
-                allocator: Allocator,
-                data: []dtype,
-            },
+            Owned: []dtype,
             /// A view into another matrix storage.
             View: *Self,
         },
@@ -148,10 +147,7 @@ pub fn Storage(dtype: type) type {
             return .{
                 .dimensions = dimensions,
                 .data = .{
-                    .Owned = .{
-                        .allocator = allocator,
-                        .data = try allocator.alloc(dtype, dims.@"0" * dims.@"1"),
-                    },
+                    .Owned = try allocator.alloc(dtype, dims.@"0" * dims.@"1"),
                 },
             };
         }
@@ -174,7 +170,7 @@ pub fn Storage(dtype: type) type {
         /// Attempts to get the value at specified index in the matrix storage.
         pub fn get(self: *const @This(), idx: usize) dtype {
             return switch (self.data) {
-                .Owned => |own| own.data[idx],
+                .Owned => |own| own[idx],
                 .View => |view| view.get(idx),
             };
         }
@@ -182,7 +178,7 @@ pub fn Storage(dtype: type) type {
         /// Attempts to set the value at the specified index in the matrix storage.
         pub fn set(self: *@This(), idx: usize, data: dtype) void {
             return switch (self.data) {
-                .Owned => |own| own.data[idx] = data,
+                .Owned => |own| own[idx] = data,
                 .View => |view| view.set(idx, data),
             };
         }
@@ -190,22 +186,23 @@ pub fn Storage(dtype: type) type {
         /// Returns the storage's memory as a const slice.
         pub fn constSlice(self: *const @This()) []const dtype {
             return switch (self.data) {
-                .Owned => |own| own.data,
+                .Owned => |own| own,
                 .View => |view| view.constSlice(),
             };
         }
 
         pub fn slice(self: *@This()) []dtype {
             return switch (self.data) {
-                .Owned => |own| own.data,
+                .Owned => |own| own,
                 .View => |view| view.slice(),
             };
         }
 
         /// Deinitializes the storage if it owns memory.
-        pub inline fn deinit(self: *@This()) void {
+        /// Use this if you haven't allocated this matrix using an arena allocator and need exact control over when the deallocation happens.
+        pub inline fn deinit(self: *@This(), allocator: Allocator) void {
             switch (self.data) {
-                .Owned => |own| own.allocator.free(own.data),
+                .Owned => |own| allocator.free(own),
                 else => {},
             }
         }
@@ -217,7 +214,7 @@ test "matrix indexing + stride test" {
 
     // default stride (3, 1)
     var mat = try Matrix(f32).withValue(.{ 3, 3 }, 0, std.testing.allocator);
-    defer mat.deinit();
+    defer mat.deinit(std.testing.allocator);
 
     for (0..3) |value|
         mat.set(.{ value, value }, @floatFromInt(value));

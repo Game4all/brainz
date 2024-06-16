@@ -101,6 +101,11 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
 test "basic xor mlp" {
     const activations = @import("activation.zig");
 
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const alloc = arena.allocator();
+
     const XorMLP = struct {
         layer_1: Dense(2, 2, activations.Heaviside) = undefined,
         layer_2: Dense(2, 1, activations.Heaviside) = undefined,
@@ -110,14 +115,14 @@ test "basic xor mlp" {
             return self.layer_2.forward(a);
         }
 
-        pub fn init(self: *@This(), alloc: Allocator) !void {
+        pub fn init(self: *@This(), allocator: Allocator) !void {
             try self.layer_1.initWithWeights(
-                alloc,
+                allocator,
                 @constCast(&[_]f32{ 1.0, 1.0, 1.0, 1.0 }),
                 @constCast(&[_]f32{ -0.5, -1.5 }),
             );
             try self.layer_2.initWithWeights(
-                alloc,
+                allocator,
                 @constCast(&[_]f32{ 1.0, -1.0 }),
                 @constCast(&[_]f32{0.0}),
             );
@@ -130,11 +135,9 @@ test "basic xor mlp" {
     };
 
     var xor_mlp: XorMLP = undefined;
-    try xor_mlp.init(std.testing.allocator);
-    defer xor_mlp.deinit();
+    try xor_mlp.init(alloc);
 
-    var inputs = try Matrix(f32).empty(.{ 2, 1 }, std.testing.allocator);
-    defer inputs.deinit();
+    var inputs = try Matrix(f32).empty(.{ 2, 1 }, alloc);
 
     const ins = [_][2]f32{
         [2]f32{ 0.0, 0.0 },
