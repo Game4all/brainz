@@ -56,7 +56,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("examples/classification.zig"),
         .name = "classification",
     });
-    classification_example.addIncludePath(b.path("examples/"));
+    classification_example.addIncludePath(b.path("examples/datasets/"));
 
     classification_example.root_module.addImport("brainz", lib);
 

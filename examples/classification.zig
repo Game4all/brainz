@@ -15,9 +15,11 @@ const Allocator = std.mem.Allocator;
 // import the dataset in C array format in another file.
 const DATASET = @cImport({
     @cInclude("dataset.h");
+    @cInclude("eval_data.h");
 });
 
 const LABELS: [100]f32 = [_]f32{0.0} ** 50 ++ [_]f32{1.0} ** 50;
+const EVAL_LABELS: [10]f32 = [_]f32{0.0} ** 5 ++ [_]f32{1.0} ** 5;
 
 pub fn main() !void {
     if (builtin.mode == .Debug)
@@ -51,13 +53,14 @@ pub fn main() !void {
             input_mat.set_data(@constCast(data));
             expected_mat.set(.{ 0, 0 }, o);
 
+            // forward prop first
             const result = mlp.forward(&input_mat);
 
-            // backprop
+            // then backprop through the net layers
             BCE.compute_derivative(result, &expected_mat, &loss_grad);
             mlp.backwards(&loss_grad);
 
-            // update the network weights
+            // then update the network weights
             mlp.step(&input_mat, 0.1);
         }
     }
@@ -75,15 +78,15 @@ pub fn main() !void {
         break :blk pcg.random();
     };
 
-    // sample 10 random items from the dataset to evaluate model performance.
+    // sample 10 random items from the eval dataset to evaluate model performance.
     for (0..10) |_| {
-        const idx = rnd.intRangeAtMost(usize, 0, LABELS.len - 1);
-        const data: *const [624]f32 = @ptrCast(&DATASET.DATASET[idx]);
+        const idx = rnd.intRangeAtMost(usize, 0, DATASET.EVAL_DATASET.len - 1);
+        const data: *const [624]f32 = @ptrCast(&DATASET.EVAL_DATASET[idx]);
         input_mat.set_data(@constCast(data));
 
         const result = mlp.forward(&input_mat);
 
-        try out.print("Result: {} | Expected: {} \n", .{ @round(result.get(.{ 0, 0 })), LABELS[idx] });
+        try out.print("Result: {} | Expected: {} \n", .{ @round(result.get(.{ 0, 0 })), EVAL_LABELS[idx] });
     }
 }
 
