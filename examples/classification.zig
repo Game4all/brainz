@@ -135,13 +135,13 @@ const ClassificationMLP = struct {
         try self.layer_1.init(alloc);
         try self.layer_2.init(alloc);
 
-        const wg1_shape = try brainz.ops.opResultShape(
+        const wg1_shape = try brainz.ops.opShape(
             .Mul,
             self.layer_1.grad.shape,
             .{ 1, 624 },
         );
 
-        const wg2_shape = try brainz.ops.opResultShape(
+        const wg2_shape = try brainz.ops.opShape(
             .Mul,
             self.layer_2.grad.shape,
             .{ 1, 32 },

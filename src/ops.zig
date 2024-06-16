@@ -1,31 +1,43 @@
 const std = @import("std");
 const Matrix = @import("matrix.zig").Matrix;
 
-pub const BinaryOp = enum {
+/// A list of available operations.
+pub const Op = enum {
     Add,
     Sub,
     Div,
     Mul,
     Hadamard,
+    MulScalar,
+    Exp,
+    Log,
+    Sum,
 };
 
 /// Returns the shape of the matrix resulting from the given operation.
 /// Returns an error if the two operand dimensions aren't compatible with each other for the specified operation.
-pub fn opResultShape(comptime op: BinaryOp, shape1: struct { usize, usize }, shape2: struct { usize, usize }) error{IncompatibleMatShapes}!struct { usize, usize } {
+pub fn opShape(comptime op: Op, shape1: struct { usize, usize }, shape2: ?struct { usize, usize }) error{ IncompatibleMatShapes, RequiresTwoShapes }!struct { usize, usize } {
     switch (op) {
         inline .Add, .Sub, .Div, .Hadamard => { // requires both dimensions to be the same
+            const shape_2 = shape2 orelse return error.RequiresTwoShapes;
+
             inline for (0..2) |i| {
-                if (shape1[i] != shape2[i])
+                if (shape1[i] != shape_2[i])
                     return error.IncompatibleMatShapes;
             }
+
             return shape1;
         },
         inline .Mul => { //requires mat1.n_cols == mat2.n_rows
-            if (shape1[1] != shape2[0])
+            const shape_2 = shape2 orelse return error.RequiresTwoShapes;
+
+            if (shape1[1] != shape_2[0])
                 return error.IncompatibleMatShapes;
 
-            return .{ shape1[0], shape2[1] };
+            return .{ shape1[0], shape_2[1] };
         },
+        inline .Exp, .Log, .MulScalar => return shape1, //same shape as the input
+        inline .Sum => .{ 1, 1 }, // outputs a scalar
     }
 }
 
@@ -115,11 +127,11 @@ test "matrix op shape checking" {
     const shape_B = .{ 3, 1 };
     const shape_C = .{ 1, 3 };
 
-    _ = try opResultShape(.Add, shape_A, shape_B);
-    _ = try opResultShape(.Sub, shape_A, shape_B);
-    _ = try opResultShape(.Div, shape_A, shape_B);
-    _ = try opResultShape(.Hadamard, shape_A, shape_B);
+    _ = try opShape(.Add, shape_A, shape_B);
+    _ = try opShape(.Sub, shape_A, shape_B);
+    _ = try opShape(.Div, shape_A, shape_B);
+    _ = try opShape(.Hadamard, shape_A, shape_B);
 
-    try std.testing.expectError(error.IncompatibleMatShapes, opResultShape(.Mul, shape_A, shape_B));
-    try std.testing.expectEqual(.{ 3, 3 }, opResultShape(.Mul, shape_A, shape_C));
+    try std.testing.expectError(error.IncompatibleMatShapes, opShape(.Mul, shape_A, shape_B));
+    try std.testing.expectEqual(.{ 3, 3 }, opShape(.Mul, shape_A, shape_C));
 }

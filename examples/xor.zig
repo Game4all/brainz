@@ -59,13 +59,13 @@ const XorMLP = struct {
         try self.layer_1.init(alloc);
         try self.layer_2.init(alloc);
 
-        const shape1 = try brainz.ops.opResultShape(
+        const shape1 = try brainz.ops.opShape(
             .Mul,
             self.layer_1.grad.shape,
             .{ 1, 2 },
         );
 
-        const shape2 = try brainz.ops.opResultShape(
+        const shape2 = try brainz.ops.opShape(
             .Mul,
             self.layer_2.grad.shape,
             .{ 1, 2 },

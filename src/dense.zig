@@ -34,12 +34,12 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
 
             self.weights = try Matrix(f32).random(.{ num_out, num_in }, rnd, alloc);
             self.biases = try Matrix(f32).random(.{ num_out, 1 }, rnd, alloc);
-            self.last_outputs = try Matrix(f32).empty(try root.ops.opResultShape(.Mul, self.weights.shape, .{ num_in, 1 }), alloc);
+            self.last_outputs = try Matrix(f32).empty(try root.ops.opShape(.Mul, self.weights.shape, .{ num_in, 1 }), alloc);
             self.activation_outputs = try Matrix(f32).empty(self.last_outputs.shape, alloc);
             self.grad = try Matrix(f32).empty(self.last_outputs.shape, alloc);
 
             const w_transposed = self.weights.transpose();
-            self.backwards_grad = try Matrix(f32).empty(try root.ops.opResultShape(.Mul, w_transposed.shape, self.grad.shape), alloc);
+            self.backwards_grad = try Matrix(f32).empty(try root.ops.opShape(.Mul, w_transposed.shape, self.grad.shape), alloc);
         }
 
         /// Initializes the layer with the given allocator and given weights.
@@ -49,13 +49,13 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
 
             self.weights = try Matrix(f32).empty(.{ num_out, num_in }, alloc);
             self.biases = try Matrix(f32).empty(.{ num_out, 1 }, alloc);
-            self.last_outputs = try Matrix(f32).empty(try root.ops.opResultShape(.Mul, self.weights.shape, .{ num_in, 1 }), alloc);
+            self.last_outputs = try Matrix(f32).empty(try root.ops.opShape(.Mul, self.weights.shape, .{ num_in, 1 }), alloc);
             self.activation_outputs = try Matrix(f32).empty(self.last_outputs.shape, alloc);
 
             self.grad = try Matrix(f32).empty(self.last_outputs.shape, alloc);
 
             const w_transposed = self.weights.transpose();
-            self.backwards_grad = try Matrix(f32).empty(try root.ops.opResultShape(.Mul, w_transposed.shape, self.grad.shape), alloc);
+            self.backwards_grad = try Matrix(f32).empty(try root.ops.opShape(.Mul, w_transposed.shape, self.grad.shape), alloc);
 
             @memcpy(self.weights.get_mut_slice(), w);
             @memcpy(self.biases.get_mut_slice(), b);
