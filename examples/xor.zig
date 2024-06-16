@@ -99,21 +99,21 @@ pub fn main() !void {
 
     for (0..50_000) |_| {
         for (inputs, outputs) |i, o| {
-            input_mat.set_data(@constCast(&i));
-            expected_mat.set_data(@constCast(&o));
+            input_mat.setData(@constCast(&i));
+            expected_mat.setData(@constCast(&o));
 
             const result = mlp.forward(&input_mat);
 
             // const loss = BCE.compute(result, &expected_mat);
-            BCE.compute_derivative(result, &expected_mat, &loss_grad);
+            BCE.computeDerivative(result, &expected_mat, &loss_grad);
             mlp.backwards(&loss_grad);
             mlp.step(&input_mat, 0.1);
         }
     }
 
     for (inputs, outputs) |i, o| {
-        input_mat.set_data(@constCast(&i));
-        expected_mat.set_data(@constCast(&o));
+        input_mat.setData(@constCast(&i));
+        expected_mat.setData(@constCast(&o));
 
         const result = mlp.forward(&input_mat);
         const loss = BCE.compute(result, &expected_mat);

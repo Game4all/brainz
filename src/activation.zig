@@ -7,7 +7,7 @@ pub const Activation = struct {
     /// Applies the activation function to the input.
     apply: *const fn (*const Matrix(f32), *Matrix(f32)) *Matrix(f32),
     ///Applies the derivative of the activation function w.r.t the inputs.
-    apply_derivative: *const fn (*const Matrix(f32), *Matrix(f32)) *Matrix(f32),
+    applyDerivative: *const fn (*const Matrix(f32), *Matrix(f32)) *Matrix(f32),
     /// Name of this activation function. Used for display purposes.
     name: [:0]const u8,
 };
@@ -15,7 +15,7 @@ pub const Activation = struct {
 /// Linear activation function
 pub const Linear: Activation = .{
     .apply = linear_activation,
-    .apply_derivative = linear_derivative,
+    .applyDerivative = linear_derivative,
     .name = @tagName(.linear),
 };
 
@@ -31,18 +31,18 @@ fn linear_derivative(_: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
 /// REctified Linear Unit (ReLu) activation function
 pub const ReLu: Activation = .{
     .apply = relu_activation,
-    .apply_derivative = relu_derivative,
+    .applyDerivative = relu_derivative,
     .name = @tagName(.relu),
 };
 
 fn relu_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.get_slice(), out.get_mut_slice()) |v, *r|
+    for (in.constSlice(), out.slice()) |v, *r|
         r.* = @max(0, v);
     return out;
 }
 
 fn relu_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.get_slice(), out.get_mut_slice()) |i, *o|
+    for (in.constSlice(), out.slice()) |i, *o|
         o.* = @max(0, std.math.sign(i));
     return out;
 }
@@ -50,18 +50,18 @@ fn relu_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
 /// Sigmoid activation function
 pub const Sigmoid: Activation = .{
     .apply = sigmoid_activation,
-    .apply_derivative = sigmoid_derivative,
+    .applyDerivative = sigmoid_derivative,
     .name = @tagName(.sigmoid),
 };
 
 fn sigmoid_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.get_slice(), out.get_mut_slice()) |v, *r|
+    for (in.constSlice(), out.slice()) |v, *r|
         r.* = 1.0 / (1.0 + std.math.exp(-v));
     return out;
 }
 
 fn sigmoid_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.get_slice(), out.get_mut_slice()) |i, *o| {
+    for (in.constSlice(), out.slice()) |i, *o| {
         const A = (1.0 / (1.0 + std.math.exp(-i)));
         o.* = A * (1.0 - A);
     }
@@ -71,12 +71,12 @@ fn sigmoid_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
 /// Heaviside aka step unit activation function
 pub const Heaviside: Activation = .{
     .apply = heaviside_activation,
-    .apply_derivative = heaviside_derivative,
+    .applyDerivative = heaviside_derivative,
     .name = @tagName(.heaviside),
 };
 
 fn heaviside_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
-    for (in.get_slice(), out.get_mut_slice()) |i, *o| {
+    for (in.constSlice(), out.slice()) |i, *o| {
         o.* = @max(std.math.sign(i), 0);
     }
     return out;
@@ -90,21 +90,21 @@ fn heaviside_derivative(_: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
 /// Softmax activation function
 pub const Softmax: Activation = .{
     .apply = softmax_activation,
-    .apply_derivative = softmax_derivative,
+    .applyDerivative = softmax_derivative,
     .name = @tagName(.softmax),
 };
 
 fn softmax_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
     ops.exp(f32, in, out);
     const s = ops.sum(f32, out);
-    for (out.get_mut_slice()) |*v|
+    for (out.slice()) |*v|
         v.* = v.* / s;
     return out;
 }
 
 fn softmax_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
     // return in * (1.0 - in);
-    for (in.get_slice(), out.get_mut_slice()) |i, *o| {
+    for (in.constSlice(), out.slice()) |i, *o| {
         const A = (1.0 / (1.0 + std.math.exp(-i)));
         o.* = A * (1.0 - A);
     }
@@ -127,7 +127,7 @@ test "softmax activation" {
 }
 
 test "sigmoid activation" {
-    var test_mat = try Matrix(f32).with_value(.{ 3, 1 }, 1.0, std.testing.allocator);
+    var test_mat = try Matrix(f32).withValue(.{ 3, 1 }, 1.0, std.testing.allocator);
     defer test_mat.deinit();
 
     var sigmoid_mat = try Matrix(f32).empty(test_mat.shape, std.testing.allocator);

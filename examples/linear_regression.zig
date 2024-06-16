@@ -49,12 +49,12 @@ pub fn main() !void {
     // train for 100 epochs.
     for (0..100) |_| {
         for (inputs, outputs) |i, o| {
-            input_mat.set_data(@constCast(&i));
-            expected_mat.set_data(@constCast(&o));
+            input_mat.setData(@constCast(&i));
+            expected_mat.setData(@constCast(&o));
 
             const result = dense.forward(&input_mat);
             const loss_val = loss.compute(result, &expected_mat);
-            loss.compute_derivative(result, &expected_mat, &loss_grad);
+            loss.computeDerivative(result, &expected_mat, &loss_grad);
 
             // compute the gradients for the layer.
             // they are stored in the `.grad` field.
@@ -76,8 +76,8 @@ pub fn main() !void {
     try out.print("\rTraining done.                   \n", .{});
 
     for (inputs, outputs) |i, o| {
-        input_mat.set_data(@constCast(&i));
-        expected_mat.set_data(@constCast(&o));
+        input_mat.setData(@constCast(&i));
+        expected_mat.setData(@constCast(&o));
 
         const result = dense.forward(&input_mat);
         try out.print("output: {} | expected: {} \n", .{ result.get(.{ 0, 0 }), expected_mat.get(.{ 0, 0 }) });

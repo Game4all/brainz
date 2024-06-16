@@ -59,7 +59,7 @@ pub fn mul(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), 
 
 /// Performs a scalar to matrix multiplication.
 pub fn mul_scalar(comptime ty: type, mat1: *const Matrix(ty), scalar: ty, result: *Matrix(ty)) void {
-    for (mat1.get_slice(), result.get_mut_slice()) |v, *r|
+    for (mat1.constSlice(), result.slice()) |v, *r|
         r.* = v * scalar;
 }
 
@@ -102,21 +102,21 @@ pub fn hadamard(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(
 /// Performs exponentiation on the specified matrix.
 pub fn exp(comptime ty: type, mat1: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
-    for (mat1.storage.get_slice(), result.storage.get_mut_slice()) |v, *r|
+    for (mat1.storage.constSlice(), result.storage.slice()) |v, *r|
         r.* = std.math.exp(v);
 }
 
 /// Performs log()
 pub fn log(comptime ty: type, mat1: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
-    for (mat1.storage.get_slice(), result.storage.get_slice()) |v, *r|
+    for (mat1.storage.constSlice(), result.storage.constSlice()) |v, *r|
         r.* = @log(v);
 }
 
 /// Sums the values of the matrix.
 pub fn sum(comptime ty: type, mat1: *const Matrix(ty)) ty {
     var summed: ty = 0;
-    for (mat1.storage.get_slice()) |v|
+    for (mat1.storage.constSlice()) |v|
         summed += v;
 
     return summed;

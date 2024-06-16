@@ -15,7 +15,7 @@ pub fn Matrix(dtype: type) type {
 
         /// Creates a matrix with all its values set to the default value.
         pub fn empty(dims: struct { usize, usize }, allocator: Allocator) !@This() {
-            const storage = try Storage(dtype).create_owned(dims, allocator);
+            const storage = try Storage(dtype).createOwned(dims, allocator);
 
             return @This(){
                 .shape = dims,
@@ -25,9 +25,9 @@ pub fn Matrix(dtype: type) type {
         }
 
         /// Creates a matrix with all its values set to the given value.
-        pub fn with_value(dims: struct { usize, usize }, def: dtype, allocator: Allocator) !@This() {
-            var storage = try Storage(dtype).create_owned(dims, allocator);
-            @memset(storage.get_mut_slice(), def);
+        pub fn withValue(dims: struct { usize, usize }, def: dtype, allocator: Allocator) !@This() {
+            var storage = try Storage(dtype).createOwned(dims, allocator);
+            @memset(storage.slice(), def);
 
             return @This(){
                 .shape = dims,
@@ -38,8 +38,8 @@ pub fn Matrix(dtype: type) type {
 
         /// Creates a matrix with all its values initialized with a RNG.
         pub fn random(dims: struct { usize, usize }, rng: Random, allocator: Allocator) !@This() {
-            var storage = try Storage(dtype).create_owned(dims, allocator);
-            for (storage.get_mut_slice()) |*val|
+            var storage = try Storage(dtype).createOwned(dims, allocator);
+            for (storage.slice()) |*val|
                 val.* = rng.floatNorm(dtype);
 
             return @This(){
@@ -66,13 +66,13 @@ pub fn Matrix(dtype: type) type {
 
         /// Fills the matrix with the specified value.
         pub inline fn fill(self: *@This(), val: dtype) void {
-            @memset(self.get_mut_slice(), val);
+            @memset(self.slice(), val);
         }
 
         /// Fills the matrix with the specified slice.
-        pub inline fn set_data(self: *@This(), data: []const dtype) void {
-            std.debug.assert(data.len == self.get_slice().len);
-            @memcpy(self.get_mut_slice(), data);
+        pub inline fn setData(self: *@This(), data: []const dtype) void {
+            std.debug.assert(data.len == self.constSlice().len);
+            @memcpy(self.slice(), data);
         }
 
         /// Returns the transposed matrix.
@@ -81,18 +81,18 @@ pub fn Matrix(dtype: type) type {
             return .{
                 .shape = .{ self.shape.@"1", self.shape.@"0" },
                 .strides = .{ self.strides.@"1", self.strides.@"0" },
-                .storage = self.storage.as_view(),
+                .storage = self.storage.asView(),
             };
         }
 
         /// Returns a const slice representing the contents of this matrix.
-        pub inline fn get_slice(self: *const @This()) []const dtype {
-            return self.storage.get_slice();
+        pub inline fn constSlice(self: *const @This()) []const dtype {
+            return self.storage.constSlice();
         }
 
         /// Returns a mutable slice representing the contents of this matrix.
-        pub inline fn get_mut_slice(self: *@This()) []dtype {
-            return self.storage.get_mut_slice();
+        pub inline fn slice(self: *@This()) []dtype {
+            return self.storage.slice();
         }
 
         /// Frees the values.
@@ -137,7 +137,7 @@ pub fn Storage(dtype: type) type {
         },
 
         /// Creates a matrix storage which owns the memory.
-        pub inline fn create_owned(dims: struct { usize, usize }, allocator: Allocator) !@This() {
+        pub inline fn createOwned(dims: struct { usize, usize }, allocator: Allocator) !@This() {
             const dimensions = blk: {
                 if (dims.@"0" * dims.@"1" == 0)
                     return error.InvalidStorageSize;
@@ -157,7 +157,7 @@ pub fn Storage(dtype: type) type {
         }
 
         /// Returns a view pointing to this storage.
-        pub inline fn as_view(self: *const @This()) @This() {
+        pub inline fn asView(self: *const @This()) @This() {
             return .{
                 .dimensions = self.dimensions,
                 .data = switch (self.data) {
@@ -188,17 +188,17 @@ pub fn Storage(dtype: type) type {
         }
 
         /// Returns the storage's memory as a const slice.
-        pub fn get_slice(self: *const @This()) []const dtype {
+        pub fn constSlice(self: *const @This()) []const dtype {
             return switch (self.data) {
                 .Owned => |own| own.data,
-                .View => |view| view.get_slice(),
+                .View => |view| view.constSlice(),
             };
         }
 
-        pub fn get_mut_slice(self: *@This()) []dtype {
+        pub fn slice(self: *@This()) []dtype {
             return switch (self.data) {
                 .Owned => |own| own.data,
-                .View => |view| view.get_mut_slice(),
+                .View => |view| view.slice(),
             };
         }
 
@@ -216,7 +216,7 @@ test "matrix indexing + stride test" {
     // create a 3x3 square matrix.
 
     // default stride (3, 1)
-    var mat = try Matrix(f32).with_value(.{ 3, 3 }, 0, std.testing.allocator);
+    var mat = try Matrix(f32).withValue(.{ 3, 3 }, 0, std.testing.allocator);
     defer mat.deinit();
 
     for (0..3) |value|

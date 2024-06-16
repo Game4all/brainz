@@ -43,7 +43,7 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
         }
 
         /// Initializes the layer with the given allocator and given weights.
-        pub fn init_with_weights(self: *@This(), alloc: Allocator, w: []f32, b: []f32) !void {
+        pub fn initWithWeights(self: *@This(), alloc: Allocator, w: []f32, b: []f32) !void {
             std.debug.assert(w.len == num_in * num_out);
             std.debug.assert(b.len == num_out);
 
@@ -57,8 +57,8 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
             const w_transposed = self.weights.transpose();
             self.backwards_grad = try Matrix(f32).empty(try root.ops.opShape(.Mul, w_transposed.shape, self.grad.shape), alloc);
 
-            @memcpy(self.weights.get_mut_slice(), w);
-            @memcpy(self.biases.get_mut_slice(), b);
+            @memcpy(self.weights.slice(), w);
+            @memcpy(self.biases.slice(), b);
         }
 
         /// Performs forward propagation through this layer.
@@ -76,7 +76,7 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
         /// - Returns the computed err_gradient to pass on for backpropagation.
         pub fn backwards(self: *@This(), err_grad: *const Matrix(f32)) *Matrix(f32) {
             // compute actual error gradient for this layer.
-            const activ = activation.apply_derivative(&self.last_outputs, &self.grad);
+            const activ = activation.applyDerivative(&self.last_outputs, &self.grad);
             root.ops.hadamard(f32, activ, err_grad, &self.grad);
 
             // compute the gradient that will get passed to the layer before that one for backprop
@@ -111,12 +111,12 @@ test "basic xor mlp" {
         }
 
         pub fn init(self: *@This(), alloc: Allocator) !void {
-            try self.layer_1.init_with_weights(
+            try self.layer_1.initWithWeights(
                 alloc,
                 @constCast(&[_]f32{ 1.0, 1.0, 1.0, 1.0 }),
                 @constCast(&[_]f32{ -0.5, -1.5 }),
             );
-            try self.layer_2.init_with_weights(
+            try self.layer_2.initWithWeights(
                 alloc,
                 @constCast(&[_]f32{ 1.0, -1.0 }),
                 @constCast(&[_]f32{0.0}),
@@ -151,9 +151,9 @@ test "basic xor mlp" {
     };
 
     for (ins, outputs) |in, outs| {
-        @memcpy(inputs.get_mut_slice(), @constCast(&in));
+        @memcpy(inputs.slice(), @constCast(&in));
         const prediction = xor_mlp.forward(&inputs);
-        try std.testing.expectEqualSlices(f32, &outs, prediction.get_slice());
+        try std.testing.expectEqualSlices(f32, &outs, prediction.constSlice());
     }
 }
 
@@ -199,11 +199,11 @@ test "linear regression backprop test" {
     // train for 100 epochs.
     for (0..100) |_| {
         for (inputs, outputs) |i, o| {
-            @memcpy(input_mat.get_mut_slice(), @constCast(&i));
-            @memcpy(expected_mat.get_mut_slice(), @constCast(&o));
+            @memcpy(input_mat.slice(), @constCast(&i));
+            @memcpy(expected_mat.slice(), @constCast(&o));
 
             const result = regressor.forward(&input_mat);
-            MSE.compute_derivative(result, &expected_mat, &loss_grad);
+            MSE.computeDerivative(result, &expected_mat, &loss_grad);
 
             // compute the gradients for the layer.
             // they are stored in the `.grad`
@@ -221,8 +221,8 @@ test "linear regression backprop test" {
     }
 
     for (inputs, outputs) |i, o| {
-        @memcpy(input_mat.get_mut_slice(), @constCast(&i));
-        @memcpy(expected_mat.get_mut_slice(), @constCast(&o));
+        @memcpy(input_mat.slice(), @constCast(&i));
+        @memcpy(expected_mat.slice(), @constCast(&o));
 
         const result = regressor.forward(&input_mat);
         try std.testing.expectApproxEqAbs(o[0], result.get(.{ 0, 0 }), 1.0e-5);

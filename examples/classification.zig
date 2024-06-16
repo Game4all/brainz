@@ -50,14 +50,14 @@ pub fn main() !void {
         for (DATASET.DATASET, LABELS) |i, o| {
             const data: *const [624]f32 = @ptrCast(&i);
 
-            input_mat.set_data(@constCast(data));
+            input_mat.setData(@constCast(data));
             expected_mat.set(.{ 0, 0 }, o);
 
             // forward prop first
             const result = mlp.forward(&input_mat);
 
             // then backprop through the net layers
-            BCE.compute_derivative(result, &expected_mat, &loss_grad);
+            BCE.computeDerivative(result, &expected_mat, &loss_grad);
             mlp.backwards(&loss_grad);
 
             // then update the network weights
@@ -82,7 +82,7 @@ pub fn main() !void {
     for (0..10) |_| {
         const idx = rnd.intRangeAtMost(usize, 0, DATASET.EVAL_DATASET.len - 1);
         const data: *const [624]f32 = @ptrCast(&DATASET.EVAL_DATASET[idx]);
-        input_mat.set_data(@constCast(data));
+        input_mat.setData(@constCast(data));
 
         const result = mlp.forward(&input_mat);
 
