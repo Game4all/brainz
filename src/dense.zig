@@ -34,12 +34,12 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
 
             self.weights = try Matrix(f32).random(.{ num_out, num_in }, rnd, alloc);
             self.biases = try Matrix(f32).random(.{ num_out, 1 }, rnd, alloc);
-            self.last_outputs = try Matrix(f32).empty(try root.ops.opShape(.Mul, self.weights.shape, .{ num_in, 1 }), alloc);
+            self.last_outputs = try Matrix(f32).empty(try root.ops.opShape(.MatMul, self.weights.shape, .{ num_in, 1 }), alloc);
             self.activation_outputs = try Matrix(f32).empty(self.last_outputs.shape, alloc);
             self.grad = try Matrix(f32).empty(self.last_outputs.shape, alloc);
 
             const w_transposed = self.weights.transpose();
-            self.backwards_grad = try Matrix(f32).empty(try root.ops.opShape(.Mul, w_transposed.shape, self.grad.shape), alloc);
+            self.backwards_grad = try Matrix(f32).empty(try root.ops.opShape(.MatMul, w_transposed.shape, self.grad.shape), alloc);
         }
 
         /// Initializes the layer with the given allocator and given weights.
@@ -49,13 +49,13 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
 
             self.weights = try Matrix(f32).empty(.{ num_out, num_in }, alloc);
             self.biases = try Matrix(f32).empty(.{ num_out, 1 }, alloc);
-            self.last_outputs = try Matrix(f32).empty(try root.ops.opShape(.Mul, self.weights.shape, .{ num_in, 1 }), alloc);
+            self.last_outputs = try Matrix(f32).empty(try root.ops.opShape(.MatMul, self.weights.shape, .{ num_in, 1 }), alloc);
             self.activation_outputs = try Matrix(f32).empty(self.last_outputs.shape, alloc);
 
             self.grad = try Matrix(f32).empty(self.last_outputs.shape, alloc);
 
             const w_transposed = self.weights.transpose();
-            self.backwards_grad = try Matrix(f32).empty(try root.ops.opShape(.Mul, w_transposed.shape, self.grad.shape), alloc);
+            self.backwards_grad = try Matrix(f32).empty(try root.ops.opShape(.MatMul, w_transposed.shape, self.grad.shape), alloc);
 
             @memcpy(self.weights.slice(), w);
             @memcpy(self.biases.slice(), b);
@@ -64,7 +64,7 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
         /// Performs forward propagation through this layer.
         pub fn forward(self: *@This(), inputs: *const Matrix(f32)) *Matrix(f32) {
             // perform linear combination
-            root.ops.mul(f32, &self.weights, inputs, &self.last_outputs);
+            root.ops.matMul(f32, &self.weights, inputs, &self.last_outputs);
             root.ops.add(f32, &self.biases, &self.last_outputs, &self.last_outputs);
 
             // apply activation element wise
@@ -77,11 +77,11 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
         pub fn backwards(self: *@This(), err_grad: *const Matrix(f32)) *Matrix(f32) {
             // compute actual error gradient for this layer.
             const activ = activation.applyDerivative(&self.last_outputs, &self.grad);
-            root.ops.hadamard(f32, activ, err_grad, &self.grad);
+            root.ops.mul(f32, activ, err_grad, &self.grad);
 
             // compute the gradient that will get passed to the layer before that one for backprop
             const w_transposed = self.weights.transpose();
-            root.ops.mul(f32, &w_transposed, &self.grad, &self.backwards_grad);
+            root.ops.matMul(f32, &w_transposed, &self.grad, &self.backwards_grad);
 
             return &self.backwards_grad;
         }
@@ -211,10 +211,10 @@ test "linear regression backprop test" {
             // compute the gradients for the layer.
             // they are stored in the `.grad`
             _ = regressor.backwards(&loss_grad);
-            ops.mul_scalar(f32, &regressor.grad, 0.1, &regressor.grad); // scale the error gradient by 0.1 so we don't have to do it twice for the weight and bias update.
+            ops.mulScalar(f32, &regressor.grad, 0.1, &regressor.grad); // scale the error gradient by 0.1 so we don't have to do it twice for the weight and bias update.
 
             // compute the grad wrt to the weights.
-            ops.mul(f32, &regressor.grad, &input_transposed, &weights_grad);
+            ops.matMul(f32, &regressor.grad, &input_transposed, &weights_grad);
 
             // update the weights
             ops.sub(f32, &regressor.weights, &weights_grad, &regressor.weights); // Wnew = Wold - Wgrad;

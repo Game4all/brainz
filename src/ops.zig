@@ -7,8 +7,8 @@ pub const Op = enum {
     Sub,
     Div,
     Mul,
-    Hadamard,
     MulScalar,
+    MatMul,
     Exp,
     Log,
     Sum,
@@ -18,7 +18,7 @@ pub const Op = enum {
 /// Returns an error if the two operand dimensions aren't compatible with each other for the specified operation.
 pub fn opShape(comptime op: Op, shape1: struct { usize, usize }, shape2: ?struct { usize, usize }) error{ IncompatibleMatShapes, RequiresTwoShapes }!struct { usize, usize } {
     switch (op) {
-        inline .Add, .Sub, .Div, .Hadamard => { // requires both dimensions to be the same
+        inline .Add, .Sub, .Div, .Mul => { // requires both dimensions to be the same
             const shape_2 = shape2 orelse return error.RequiresTwoShapes;
 
             inline for (0..2) |i| {
@@ -28,7 +28,7 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize }, shape2: ?struct
 
             return shape1;
         },
-        inline .Mul => { //requires mat1.n_cols == mat2.n_rows
+        inline .MatMul => { //requires mat1.n_cols == mat2.n_rows
             const shape_2 = shape2 orelse return error.RequiresTwoShapes;
 
             if (shape1[1] != shape_2[0])
@@ -42,7 +42,7 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize }, shape2: ?struct
 }
 
 /// Performs matrix multiplication between two matrices.
-pub fn mul(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), result: *Matrix(ty)) void {
+pub fn matMul(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(mat1.shape[1] == mat2.shape[0]);
     std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat2.shape[1]);
 
@@ -58,7 +58,7 @@ pub fn mul(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), 
 }
 
 /// Performs a scalar to matrix multiplication.
-pub fn mul_scalar(comptime ty: type, mat1: *const Matrix(ty), scalar: ty, result: *Matrix(ty)) void {
+pub fn mulScalar(comptime ty: type, mat1: *const Matrix(ty), scalar: ty, result: *Matrix(ty)) void {
     for (mat1.constSlice(), result.slice()) |v, *r|
         r.* = v * scalar;
 }
@@ -88,7 +88,7 @@ pub fn sub(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), 
 }
 
 /// Performs the hadamard product aka element-wise multiplication of two matrices.
-pub fn hadamard(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), result: *Matrix(ty)) void {
+pub fn mul(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(mat1.shape[0] == mat2.shape[0] and mat1.shape[1] == mat2.shape[1]);
     std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
 
@@ -130,8 +130,8 @@ test "matrix op shape checking" {
     _ = try opShape(.Add, shape_A, shape_B);
     _ = try opShape(.Sub, shape_A, shape_B);
     _ = try opShape(.Div, shape_A, shape_B);
-    _ = try opShape(.Hadamard, shape_A, shape_B);
+    _ = try opShape(.Mul, shape_A, shape_B);
 
-    try std.testing.expectError(error.IncompatibleMatShapes, opShape(.Mul, shape_A, shape_B));
-    try std.testing.expectEqual(.{ 3, 3 }, opShape(.Mul, shape_A, shape_C));
+    try std.testing.expectError(error.IncompatibleMatShapes, opShape(.MatMul, shape_A, shape_B));
+    try std.testing.expectEqual(.{ 3, 3 }, opShape(.MatMul, shape_A, shape_C));
 }

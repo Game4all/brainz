@@ -115,12 +115,12 @@ const ClassificationMLP = struct {
         const layer1_inputs = ins.transpose();
 
         // scale the error gradients as per the learning rate.
-        brainz.ops.mul_scalar(f32, &self.layer_1.grad, lr, &self.layer_1.grad);
-        brainz.ops.mul_scalar(f32, &self.layer_2.grad, lr, &self.layer_2.grad);
+        brainz.ops.mulScalar(f32, &self.layer_1.grad, lr, &self.layer_1.grad);
+        brainz.ops.mulScalar(f32, &self.layer_2.grad, lr, &self.layer_2.grad);
 
         // compute the actual gradients wrt to the weights of the layers for weight update.
-        brainz.ops.mul(f32, &self.layer_1.grad, &layer1_inputs, &self.weight_grad_1);
-        brainz.ops.mul(f32, &self.layer_2.grad, &layer2_inputs, &self.weight_grad_2);
+        brainz.ops.matMul(f32, &self.layer_1.grad, &layer1_inputs, &self.weight_grad_1);
+        brainz.ops.matMul(f32, &self.layer_2.grad, &layer2_inputs, &self.weight_grad_2);
 
         // update the weights.
         brainz.ops.sub(f32, &self.layer_1.weights, &self.weight_grad_1, &self.layer_1.weights);
@@ -136,13 +136,13 @@ const ClassificationMLP = struct {
         try self.layer_2.init(alloc);
 
         const wg1_shape = try brainz.ops.opShape(
-            .Mul,
+            .MatMul,
             self.layer_1.grad.shape,
             .{ 1, 624 },
         );
 
         const wg2_shape = try brainz.ops.opShape(
-            .Mul,
+            .MatMul,
             self.layer_2.grad.shape,
             .{ 1, 32 },
         );

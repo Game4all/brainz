@@ -59,10 +59,10 @@ pub fn main() !void {
             // compute the gradients for the layer.
             // they are stored in the `.grad` field.
             _ = dense.backwards(&loss_grad);
-            brainz.ops.mul_scalar(f32, &dense.grad, 0.1, &dense.grad); // scale the error gradient by 0.1 so we don't have to do it twice for the weight and bias update.
+            brainz.ops.mulScalar(f32, &dense.grad, 0.1, &dense.grad); // scale the error gradient by 0.1 so we don't have to do it twice for the weight and bias update.
 
             // compute the grad wrt to the weights.
-            brainz.ops.mul(f32, &dense.grad, &input_transposed, &weights_grad);
+            brainz.ops.matMul(f32, &dense.grad, &input_transposed, &weights_grad);
 
             // update the weights
             brainz.ops.sub(f32, &dense.weights, &weights_grad, &dense.weights); // Wnew = Wold - Wgrad;
