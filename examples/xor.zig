@@ -66,7 +66,7 @@ const XorMLP = struct {
         );
 
         const shape2 = try brainz.ops.opShape(
-            .Mul,
+            .MatMul,
             self.layer_2.grad.shape,
             .{ 1, 2 },
         );
@@ -115,9 +115,9 @@ pub fn main() !void {
         input_mat.setData(@constCast(&i));
         expected_mat.setData(@constCast(&o));
 
-        const result = mlp.forward(&input_mat);
-        const loss = BCE.compute(result, &expected_mat);
-
-        try out.print("Result: {} | Expected: {} | Loss: {} \n", .{ result.get(.{ 0, 0 }), expected_mat.get(.{ 0, 0 }), loss });
+        _ = mlp.forward(&input_mat);
+        // const loss = BCE.compute(result, &expected_mat);
     }
+
+    try out.print("Weights: {}", .{mlp.layer_1.weights});
 }
