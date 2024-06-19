@@ -102,21 +102,21 @@ pub fn mul(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), 
 /// Performs exponentiation on the specified matrix.
 pub fn exp(comptime ty: type, mat1: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
-    for (mat1.storage.constSlice(), result.storage.slice()) |v, *r|
+    for (mat1.constSlice(), result.slice()) |v, *r|
         r.* = std.math.exp(v);
 }
 
 /// Performs log()
 pub fn log(comptime ty: type, mat1: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(result.shape[0] == mat1.shape[0] and result.shape[1] == mat1.shape[1]);
-    for (mat1.storage.constSlice(), result.storage.constSlice()) |v, *r|
+    for (mat1.constSlice(), result.constSlice()) |v, *r|
         r.* = @log(v);
 }
 
 /// Sums the values of the matrix.
 pub fn sum(comptime ty: type, mat1: *const Matrix(ty)) ty {
     var summed: ty = 0;
-    for (mat1.storage.constSlice()) |v|
+    for (mat1.constSlice()) |v|
         summed += v;
 
     return summed;

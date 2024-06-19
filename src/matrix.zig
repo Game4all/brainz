@@ -28,27 +28,17 @@ pub fn Matrix(dtype: type) type {
 
         /// Creates a matrix with all its values set to the given value.
         pub fn withValue(dims: struct { usize, usize }, def: dtype, allocator: Allocator) !@This() {
-            var storage = try Storage(dtype).createOwned(dims, allocator);
-            @memset(storage.slice(), def);
-
-            return @This(){
-                .shape = dims,
-                .strides = .{ dims.@"1", 1 },
-                .storage = storage,
-            };
+            var mat = try empty(dims, allocator);
+            mat.fill(def);
+            return mat;
         }
 
         /// Creates a matrix with all its values initialized with a RNG.
         pub fn random(dims: struct { usize, usize }, rng: Random, allocator: Allocator) !@This() {
-            var storage = try Storage(dtype).createOwned(dims, allocator);
-            for (storage.slice()) |*val|
+            var mat = try empty(dims, allocator);
+            for (mat.slice()) |*val|
                 val.* = rng.floatNorm(dtype);
-
-            return @This(){
-                .shape = dims,
-                .strides = .{ dims.@"1", 1 },
-                .storage = storage,
-            };
+            return mat;
         }
 
         /// Gets the value in the matrix at the specified position.
@@ -121,78 +111,63 @@ pub fn Matrix(dtype: type) type {
 }
 
 /// Storage for matrix data.
-pub fn Storage(dtype: type) type {
-    return struct {
+fn Storage(dtype: type) type {
+    return union(enum) {
         const Self = @This();
 
-        /// Dimensions of the matrix storage (M rows x N columns).
-        dimensions: struct { usize, usize },
-        /// The storage kind (owns memory or is simply a view to another storage).
-        data: union(enum) {
-            /// The memory is owned.
-            Owned: []dtype,
-            /// A view into another matrix storage.
-            View: *Self,
-        },
+        /// The memory is owned.
+        Owned: []dtype,
+        /// A view into another matrix storage.
+        View: *Self,
 
         /// Creates a matrix storage which owns the memory.
-        pub inline fn createOwned(dims: struct { usize, usize }, allocator: Allocator) !@This() {
-            const dimensions = blk: {
-                if (dims.@"0" * dims.@"1" == 0)
-                    return error.InvalidStorageSize;
-
-                break :blk dims;
-            };
+        inline fn createOwned(dims: struct { usize, usize }, allocator: Allocator) !@This() {
+            if (dims.@"0" * dims.@"1" == 0)
+                return error.InvalidStorageSize;
 
             return .{
-                .dimensions = dimensions,
-                .data = .{
-                    .Owned = try allocator.alloc(dtype, dims.@"0" * dims.@"1"),
-                },
+                .Owned = try allocator.alloc(dtype, dims.@"0" * dims.@"1"),
             };
         }
 
         /// Returns a view pointing to this storage.
-        pub inline fn asView(self: *const @This()) @This() {
-            return .{
-                .dimensions = self.dimensions,
-                .data = switch (self.data) {
-                    .Owned => .{
-                        .View = @constCast(self),
-                    },
-                    .View => |view| .{
-                        .View = view,
-                    },
+        inline fn asView(self: *const @This()) @This() {
+            return switch (self.*) {
+                .Owned => .{
+                    .View = @constCast(self),
+                },
+                .View => |view| .{
+                    .View = view,
                 },
             };
         }
 
         /// Attempts to get the value at specified index in the matrix storage.
-        pub fn get(self: *const @This(), idx: usize) dtype {
-            return switch (self.data) {
+        fn get(self: *const @This(), idx: usize) dtype {
+            return switch (self.*) {
                 .Owned => |own| own[idx],
                 .View => |view| view.get(idx),
             };
         }
 
         /// Attempts to set the value at the specified index in the matrix storage.
-        pub fn set(self: *@This(), idx: usize, data: dtype) void {
-            return switch (self.data) {
+        fn set(self: *@This(), idx: usize, data: dtype) void {
+            return switch (self.*) {
                 .Owned => |own| own[idx] = data,
                 .View => |view| view.set(idx, data),
             };
         }
 
         /// Returns the storage's memory as a const slice.
-        pub fn constSlice(self: *const @This()) []const dtype {
-            return switch (self.data) {
+        fn constSlice(self: *const @This()) []const dtype {
+            return switch (self.*) {
                 .Owned => |own| own,
                 .View => |view| view.constSlice(),
             };
         }
 
-        pub fn slice(self: *@This()) []dtype {
-            return switch (self.data) {
+        fn slice(self: *@This()) []dtype {
+            return switch (self.*) {
                 .Owned => |own| own,
                 .View => |view| view.slice(),
             };
@@ -200,8 +175,8 @@ pub fn Storage(dtype: type) type {
 
         /// Deinitializes the storage if it owns memory.
         /// Use this if you haven't allocated this matrix using an arena allocator and need exact control over when the deallocation happens.
-        pub inline fn deinit(self: *@This(), allocator: Allocator) void {
-            switch (self.data) {
+        inline fn deinit(self: *@This(), allocator: Allocator) void {
+            switch (self.*) {
                 .Owned => |own| allocator.free(own),
                 else => {},
             }
