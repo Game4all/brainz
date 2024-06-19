@@ -41,6 +41,26 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize }, shape2: ?struct
     }
 }
 
+/// Attempts to broadcast two shapes and returns the broadcasted shape.
+/// Returns an error if the shapes aren't broadcastable.
+pub fn broadcastShape(shape1: struct { usize, usize, usize }, shape2: struct { usize, usize, usize }) error{IncompatibleShapes}!struct { usize, usize, usize } {
+    var final_shape: struct { usize, usize, usize } = .{ 0, 0, 0 };
+
+    comptime var i = 2;
+
+    inline while (i >= 0) : (i -= 1) {
+        const dim1 = @max(shape1[i], 1);
+        const dim2 = @max(shape2[i], 1);
+
+        if (dim1 != dim2 and dim1 != 1 and dim2 != 1)
+            return error.IncompatibleShapes;
+
+        final_shape[i] = @max(dim1, dim2);
+    }
+
+    return final_shape;
+}
+
 /// Performs matrix multiplication between two matrices.
 pub fn matMul(comptime ty: type, mat1: *const Matrix(ty), mat2: *const Matrix(ty), result: *Matrix(ty)) void {
     std.debug.assert(mat1.shape[1] == mat2.shape[0]);
@@ -134,4 +154,9 @@ test "matrix op shape checking" {
 
     try std.testing.expectError(error.IncompatibleMatShapes, opShape(.MatMul, shape_A, shape_B));
     try std.testing.expectEqual(.{ 3, 3 }, opShape(.MatMul, shape_A, shape_C));
+}
+
+test "shape broadcasting" {
+    try std.testing.expectEqual(.{ 3, 2, 3 }, try broadcastShape(.{ 3, 2, 1 }, .{ 1, 2, 3 }));
+    try std.testing.expectError(error.IncompatibleShapes, broadcastShape(.{ 4, 2, 9 }, .{ 1, 2, 3 }));
 }
