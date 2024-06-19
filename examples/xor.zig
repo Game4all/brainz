@@ -115,9 +115,7 @@ pub fn main() !void {
         input_mat.setData(@constCast(&i));
         expected_mat.setData(@constCast(&o));
 
-        _ = mlp.forward(&input_mat);
-        // const loss = BCE.compute(result, &expected_mat);
+        const result = mlp.forward(&input_mat);
+        try out.print("Output: {} | Expected: {} \n", .{ result.get(.{ 0, 0 }), expected_mat.get(.{ 0, 0 }) });
     }
-
-    try out.print("Weights: {}", .{mlp.layer_1.weights});
 }
