@@ -35,16 +35,16 @@ pub fn main() !void {
     var out = std.io.getStdOut().writer();
 
     // contains the expected value for backprop
-    var expected_mat = try Mat(f32).empty(.{ 1, 1 }, alloc);
+    var expected_mat = try Mat(f32).empty(.{ 0, 1, 1 }, alloc);
     // contains the computed loss gradient
-    var loss_grad = try Mat(f32).empty(.{ 1, 1 }, alloc);
+    var loss_grad = try Mat(f32).empty(.{ 0, 1, 1 }, alloc);
 
     // contains the input of the network
-    var input_mat = try Mat(f32).empty(.{ 1, 1 }, alloc);
+    var input_mat = try Mat(f32).empty(.{ 0, 1, 1 }, alloc);
     var input_transposed = input_mat.transpose();
 
     // contains the gradient wrt to the weights
-    var weights_grad = try Mat(f32).empty(.{ 1, 1 }, alloc);
+    var weights_grad = try Mat(f32).empty(.{ 0, 1, 1 }, alloc);
 
     // train for 100 epochs.
     for (0..100) |_| {
@@ -80,6 +80,6 @@ pub fn main() !void {
         expected_mat.setData(@constCast(&o));
 
         const result = dense.forward(&input_mat);
-        try out.print("output: {} | expected: {} \n", .{ result.get(.{ 0, 0 }), expected_mat.get(.{ 0, 0 }) });
+        try out.print("output: {} | expected: {} \n", .{ result.get(.{ 0, 0, 0 }), expected_mat.get(.{ 0, 0, 0 }) });
     }
 }

@@ -1,6 +1,6 @@
 const std = @import("std");
 const ops = @import("ops.zig");
-const Matrix = @import("matrix.zig").Matrix;
+const Tensor = @import("tensor.zig").Tensor;
 
 // the minimum value that a f32 can handle
 // this gets added to the input value in loss functions which aren't numerically stable (namely log()) to prevent NaNs.
@@ -8,8 +8,8 @@ const F32_MIN_VALUE = std.math.floatMin(f32);
 
 /// A usable loss function.
 pub const Loss = struct {
-    compute: *const fn (*const Matrix(f32), *const Matrix(f32)) f32,
-    computeDerivative: *const fn (*const Matrix(f32), *const Matrix(f32), *Matrix(f32)) void,
+    compute: *const fn (*const Tensor(f32), *const Tensor(f32)) f32,
+    computeDerivative: *const fn (*const Tensor(f32), *const Tensor(f32), *Tensor(f32)) void,
 };
 
 /// Mean Squared Error or L2 loss.
@@ -18,7 +18,7 @@ pub const MSE: Loss = .{
     .computeDerivative = mse_derivative,
 };
 
-fn mse_loss(input: *const Matrix(f32), target: *const Matrix(f32)) f32 {
+fn mse_loss(input: *const Tensor(f32), target: *const Tensor(f32)) f32 {
     var loss: f32 = 0.0;
     const len = input.constSlice().len;
 
@@ -28,7 +28,7 @@ fn mse_loss(input: *const Matrix(f32), target: *const Matrix(f32)) f32 {
     return loss;
 }
 
-fn mse_derivative(in: *const Matrix(f32), target: *const Matrix(f32), result: *Matrix(f32)) void {
+fn mse_derivative(in: *const Tensor(f32), target: *const Tensor(f32), result: *Tensor(f32)) void {
     ops.sub(f32, in, target, result);
     return;
 }
@@ -40,7 +40,7 @@ pub const BinaryCrossEntropy: Loss = .{
     .computeDerivative = bce_derivative,
 };
 
-fn bce_loss(input: *const Matrix(f32), target: *const Matrix(f32)) f32 {
+fn bce_loss(input: *const Tensor(f32), target: *const Tensor(f32)) f32 {
     var loss: f32 = 0.0;
     const len = input.constSlice().len;
 
@@ -50,7 +50,7 @@ fn bce_loss(input: *const Matrix(f32), target: *const Matrix(f32)) f32 {
     return loss;
 }
 
-fn bce_derivative(input: *const Matrix(f32), target: *const Matrix(f32), result: *Matrix(f32)) void {
+fn bce_derivative(input: *const Tensor(f32), target: *const Tensor(f32), result: *Tensor(f32)) void {
     for (input.constSlice(), target.constSlice(), result.slice()) |i, t, *r|
         r.* = ((i + F32_MIN_VALUE - t) / ((i + F32_MIN_VALUE) * (1.0 - i + F32_MIN_VALUE)));
 }
@@ -62,7 +62,7 @@ pub const CategoricalCrossEntropy: Loss = .{
     .computeDerivative = bce_derivative,
 };
 
-fn cce_loss(input: *const Matrix(f32), target: *const Matrix(f32)) f32 {
+fn cce_loss(input: *const Tensor(f32), target: *const Tensor(f32)) f32 {
     var loss: f32 = 0.0;
     const len = input.constSlice().len;
 
@@ -72,7 +72,7 @@ fn cce_loss(input: *const Matrix(f32), target: *const Matrix(f32)) f32 {
     return loss;
 }
 
-fn cce_derivative(in: *const Matrix(f32), target: *const Matrix(f32), result: *Matrix(f32)) void {
+fn cce_derivative(in: *const Tensor(f32), target: *const Tensor(f32), result: *Tensor(f32)) void {
     ops.sub(f32, in, target, result);
     return result;
 }

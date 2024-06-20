@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const brainz = @import("brainz");
-const Matrix = brainz.Matrix;
+const Tensor = brainz.Matrix;
 const Allocator = std.mem.Allocator;
 
 ///
@@ -37,9 +37,9 @@ pub fn main() !void {
     var mlp: ClassificationMLP = undefined;
     try mlp.init(alloc);
 
-    var input_mat = try Matrix(f32).empty(.{ 624, 1 }, alloc);
-    var expected_mat = try Matrix(f32).empty(.{ 1, 1 }, alloc);
-    var loss_grad = try Matrix(f32).empty(.{ 1, 1 }, alloc);
+    var input_mat = try Tensor(f32).empty(.{ 0, 624, 1 }, alloc);
+    var expected_mat = try Tensor(f32).empty(.{ 0, 1, 1 }, alloc);
+    var loss_grad = try Tensor(f32).empty(.{ 0, 1, 1 }, alloc);
 
     const BCE = brainz.loss.BinaryCrossEntropy;
 
@@ -51,7 +51,7 @@ pub fn main() !void {
             const data: *const [624]f32 = @ptrCast(&i);
 
             input_mat.setData(@constCast(data));
-            expected_mat.set(.{ 0, 0 }, o);
+            expected_mat.set(.{ 0, 0, 0 }, o);
 
             // forward prop first
             const result = mlp.forward(&input_mat);
@@ -86,7 +86,7 @@ pub fn main() !void {
 
         const result = mlp.forward(&input_mat);
 
-        try out.print("Result: {} | Expected: {} \n", .{ @round(result.get(.{ 0, 0 })), EVAL_LABELS[idx] });
+        try out.print("Result: {} | Expected: {} \n", .{ @round(result.get(.{ 0, 0, 0 })), EVAL_LABELS[idx] });
     }
 }
 
@@ -96,21 +96,21 @@ const ClassificationMLP = struct {
     layer_2: brainz.Dense(32, 1, brainz.activation.Sigmoid) = undefined,
 
     // used for storing temporary weights gradients for updating weights.
-    weight_grad_1: Matrix(f32),
-    weight_grad_2: Matrix(f32),
+    weight_grad_1: Tensor(f32),
+    weight_grad_2: Tensor(f32),
 
-    pub fn forward(self: *@This(), input: *const Matrix(f32)) *Matrix(f32) {
+    pub fn forward(self: *@This(), input: *const Tensor(f32)) *Tensor(f32) {
         const a = self.layer_1.forward(input);
         return self.layer_2.forward(a);
     }
 
-    pub fn backwards(self: *@This(), loss_grad: *const Matrix(f32)) void {
+    pub fn backwards(self: *@This(), loss_grad: *const Tensor(f32)) void {
         const A = self.layer_2.backwards(loss_grad);
         _ = self.layer_1.backwards(A);
     }
 
     /// Update the weights by the specified learning rate
-    pub fn step(self: *@This(), ins: *const Matrix(f32), lr: f32) void {
+    pub fn step(self: *@This(), ins: *const Tensor(f32), lr: f32) void {
         const layer2_inputs = self.layer_1.activation_outputs.transpose();
         const layer1_inputs = ins.transpose();
 
@@ -138,16 +138,16 @@ const ClassificationMLP = struct {
         const wg1_shape = try brainz.ops.opShape(
             .MatMul,
             self.layer_1.grad.shape,
-            .{ 1, 624 },
+            .{ 0, 1, 624 },
         );
 
         const wg2_shape = try brainz.ops.opShape(
             .MatMul,
             self.layer_2.grad.shape,
-            .{ 1, 32 },
+            .{ 0, 1, 32 },
         );
 
-        self.weight_grad_1 = try Matrix(f32).empty(wg1_shape, alloc);
-        self.weight_grad_2 = try Matrix(f32).empty(wg2_shape, alloc);
+        self.weight_grad_1 = try Tensor(f32).empty(wg1_shape, alloc);
+        self.weight_grad_2 = try Tensor(f32).empty(wg2_shape, alloc);
     }
 };

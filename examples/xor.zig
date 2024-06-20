@@ -62,13 +62,13 @@ const XorMLP = struct {
         const shape1 = try brainz.ops.opShape(
             .MatMul,
             self.layer_1.grad.shape,
-            .{ 1, 2 },
+            .{ 0, 1, 2 },
         );
 
         const shape2 = try brainz.ops.opShape(
             .MatMul,
             self.layer_2.grad.shape,
-            .{ 1, 2 },
+            .{ 0, 1, 2 },
         );
 
         self.weight_grad_1 = try Matrix(f32).empty(shape1, alloc);
@@ -88,10 +88,10 @@ pub fn main() !void {
 
     const BCE = brainz.loss.BinaryCrossEntropy;
 
-    var expected_mat = try Matrix(f32).empty(.{ 1, 1 }, alloc);
-    var loss_grad = try Matrix(f32).empty(.{ 1, 1 }, alloc);
+    var expected_mat = try Matrix(f32).empty(.{ 0, 1, 1 }, alloc);
+    var loss_grad = try Matrix(f32).empty(.{ 0, 1, 1 }, alloc);
 
-    var input_mat = try Matrix(f32).empty(.{ 2, 1 }, alloc);
+    var input_mat = try Matrix(f32).empty(.{ 0, 2, 1 }, alloc);
 
     try mlp.init(alloc);
 
@@ -116,6 +116,6 @@ pub fn main() !void {
         expected_mat.setData(@constCast(&o));
 
         const result = mlp.forward(&input_mat);
-        try out.print("Output: {} | Expected: {} \n", .{ result.get(.{ 0, 0 }), expected_mat.get(.{ 0, 0 }) });
+        try out.print("Output: {} | Expected: {} \n", .{ result.get(.{ 0, 0, 0 }), expected_mat.get(.{ 0, 0, 0 }) });
     }
 }

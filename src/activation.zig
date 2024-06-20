@@ -1,13 +1,13 @@
 const std = @import("std");
-const Matrix = @import("matrix.zig").Matrix;
+const Tensor = @import("tensor.zig").Tensor;
 const ops = @import("ops.zig");
 
 /// Represents an activation function.
 pub const Activation = struct {
     /// Applies the activation function to the input.
-    apply: *const fn (*const Matrix(f32), *Matrix(f32)) *Matrix(f32),
+    apply: *const fn (*const Tensor(f32), *Tensor(f32)) *Tensor(f32),
     ///Applies the derivative of the activation function w.r.t the inputs.
-    applyDerivative: *const fn (*const Matrix(f32), *Matrix(f32)) *Matrix(f32),
+    applyDerivative: *const fn (*const Tensor(f32), *Tensor(f32)) *Tensor(f32),
     /// Name of this activation function. Used for display purposes.
     name: [:0]const u8,
 };
@@ -19,11 +19,11 @@ pub const Linear: Activation = .{
     .name = @tagName(.linear),
 };
 
-fn linear_activation(in: *const Matrix(f32), _: *Matrix(f32)) *Matrix(f32) {
+fn linear_activation(in: *const Tensor(f32), _: *Tensor(f32)) *Tensor(f32) {
     return @constCast(in);
 }
 
-fn linear_derivative(_: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn linear_derivative(_: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     out.fill(1.0);
     return out;
 }
@@ -35,13 +35,13 @@ pub const ReLu: Activation = .{
     .name = @tagName(.relu),
 };
 
-fn relu_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn relu_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     for (in.constSlice(), out.slice()) |v, *r|
         r.* = @max(0, v);
     return out;
 }
 
-fn relu_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn relu_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     for (in.constSlice(), out.slice()) |i, *o|
         o.* = @max(0, std.math.sign(i));
     return out;
@@ -54,13 +54,13 @@ pub const Sigmoid: Activation = .{
     .name = @tagName(.sigmoid),
 };
 
-fn sigmoid_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn sigmoid_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     for (in.constSlice(), out.slice()) |v, *r|
         r.* = 1.0 / (1.0 + std.math.exp(-v));
     return out;
 }
 
-fn sigmoid_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn sigmoid_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     for (in.constSlice(), out.slice()) |i, *o| {
         const A = (1.0 / (1.0 + std.math.exp(-i)));
         o.* = A * (1.0 - A);
@@ -75,14 +75,14 @@ pub const Heaviside: Activation = .{
     .name = @tagName(.heaviside),
 };
 
-fn heaviside_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn heaviside_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     for (in.constSlice(), out.slice()) |i, *o| {
         o.* = @max(std.math.sign(i), 0);
     }
     return out;
 }
 
-fn heaviside_derivative(_: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn heaviside_derivative(_: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     out.fill(1.0);
     return out;
 }
@@ -94,7 +94,7 @@ pub const Softmax: Activation = .{
     .name = @tagName(.softmax),
 };
 
-fn softmax_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn softmax_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     ops.exp(f32, in, out);
     const s = ops.sum(f32, out);
     for (out.slice()) |*v|
@@ -102,7 +102,7 @@ fn softmax_activation(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
     return out;
 }
 
-fn softmax_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
+fn softmax_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     // return in * (1.0 - in);
     for (in.constSlice(), out.slice()) |i, *o| {
         const A = (1.0 / (1.0 + std.math.exp(-i)));
@@ -112,25 +112,25 @@ fn softmax_derivative(in: *const Matrix(f32), out: *Matrix(f32)) *Matrix(f32) {
 }
 
 test "softmax activation" {
-    var test_mat = try Matrix(f32).empty(.{ 3, 1 }, std.testing.allocator);
+    var test_mat = try Tensor(f32).empty(.{ 0, 3, 1 }, std.testing.allocator);
     defer test_mat.deinit(std.testing.allocator);
 
-    var softmax_mat = try Matrix(f32).empty(test_mat.shape, std.testing.allocator);
+    var softmax_mat = try Tensor(f32).empty(test_mat.shape, std.testing.allocator);
     defer softmax_mat.deinit(std.testing.allocator);
 
-    test_mat.set(.{ 0, 0 }, 1.0);
-    test_mat.set(.{ 1, 0 }, 3.0);
-    test_mat.set(.{ 2, 0 }, 6.0);
+    test_mat.set(.{ 0, 0, 0 }, 1.0);
+    test_mat.set(.{ 0, 1, 0 }, 3.0);
+    test_mat.set(.{ 0, 2, 0 }, 6.0);
 
     _ = Softmax.apply(&test_mat, &softmax_mat);
     try std.testing.expectEqual(1.0, ops.sum(f32, &softmax_mat));
 }
 
 test "sigmoid activation" {
-    var test_mat = try Matrix(f32).withValue(.{ 3, 1 }, 1.0, std.testing.allocator);
+    var test_mat = try Tensor(f32).withValue(.{ 0, 3, 1 }, 1.0, std.testing.allocator);
     defer test_mat.deinit(std.testing.allocator);
 
-    var sigmoid_mat = try Matrix(f32).empty(test_mat.shape, std.testing.allocator);
+    var sigmoid_mat = try Tensor(f32).empty(test_mat.shape, std.testing.allocator);
     defer sigmoid_mat.deinit(std.testing.allocator);
 
     _ = Sigmoid.apply(&test_mat, &sigmoid_mat);
