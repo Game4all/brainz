@@ -66,6 +66,15 @@ pub fn broadcastShape(shape1: struct { usize, usize, usize }, shape2: struct { u
     return final_shape;
 }
 
+/// Performs shape checks on the operand and result tensor shapes
+fn checkSameShape(shape1: struct { usize, usize, usize }, shape2: struct { usize, usize, usize }, result: struct { usize, usize, usize }) bool {
+    inline for (0..3) |i| {
+        if (shape1[i] != shape2[i] or shape2[i] != result[i])
+            return false;
+    }
+    return true;
+}
+
 /// Performs a matrix multiplication between two tensors.
 /// Supports broadcasting to a common batch dimension.
 /// Requires the two rightmost dimensions to be the number of columns and number of rows.
@@ -104,12 +113,24 @@ pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     inline for (0..3) |i|
         std.debug.assert(result.shape[i] == outShape[i]);
 
-    for (0..@max(result.shape[0], 1)) |i| {
-        for (0..@max(result.shape[1], 1)) |j| {
-            for (0..@max(result.shape[2], 1)) |k| {
-                const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
-                const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
-                result.set(.{ i, j, k }, a - b);
+    if (checkSameShape(mat1.shape, mat2.shape, result.shape)) {
+        for (0..@max(result.shape[0], 1)) |i| {
+            for (0..@max(result.shape[1], 1)) |j| {
+                for (0..@max(result.shape[2], 1)) |k| {
+                    const a = mat1.get(.{ i, j, k });
+                    const b = mat2.get(.{ i, j, k });
+                    result.set(.{ i, j, k }, a - b);
+                }
+            }
+        }
+    } else {
+        for (0..@max(result.shape[0], 1)) |i| {
+            for (0..@max(result.shape[1], 1)) |j| {
+                for (0..@max(result.shape[2], 1)) |k| {
+                    const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
+                    const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
+                    result.set(.{ i, j, k }, a - b);
+                }
             }
         }
     }
@@ -122,12 +143,24 @@ pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     inline for (0..3) |i|
         std.debug.assert(result.shape[i] == outShape[i]);
 
-    for (0..@max(result.shape[0], 1)) |i| {
-        for (0..@max(result.shape[1], 1)) |j| {
-            for (0..@max(result.shape[2], 1)) |k| {
-                const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
-                const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
-                result.set(.{ i, j, k }, a * b);
+    if (checkSameShape(mat1.shape, mat2.shape, result.shape)) {
+        for (0..@max(result.shape[0], 1)) |i| {
+            for (0..@max(result.shape[1], 1)) |j| {
+                for (0..@max(result.shape[2], 1)) |k| {
+                    const a = mat1.get(.{ i, j, k });
+                    const b = mat2.get(.{ i, j, k });
+                    result.set(.{ i, j, k }, a * b);
+                }
+            }
+        }
+    } else {
+        for (0..@max(result.shape[0], 1)) |i| {
+            for (0..@max(result.shape[1], 1)) |j| {
+                for (0..@max(result.shape[2], 1)) |k| {
+                    const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
+                    const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
+                    result.set(.{ i, j, k }, a * b);
+                }
             }
         }
     }
@@ -136,16 +169,28 @@ pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
 /// Performs the addition of two tensors
 /// Supports broadcasting to a common shape.
 pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
-    // const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
-    // inline for (0..3) |i|
-    //     std.debug.assert(result.shape[i] == outShape[i]);
+    const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
+    inline for (0..3) |i|
+        std.debug.assert(result.shape[i] == outShape[i]);
 
-    for (0..@max(result.shape[0], 1)) |i| {
-        for (0..@max(result.shape[1], 1)) |j| {
-            for (0..@max(result.shape[2], 1)) |k| {
-                const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
-                const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
-                result.set(.{ i, j, k }, a + b);
+    if (checkSameShape(mat1.shape, mat2.shape, result.shape)) {
+        for (0..@max(result.shape[0], 1)) |i| {
+            for (0..@max(result.shape[1], 1)) |j| {
+                for (0..@max(result.shape[2], 1)) |k| {
+                    const a = mat1.get(.{ i, j, k });
+                    const b = mat2.get(.{ i, j, k });
+                    result.set(.{ i, j, k }, a + b);
+                }
+            }
+        }
+    } else {
+        for (0..@max(result.shape[0], 1)) |i| {
+            for (0..@max(result.shape[1], 1)) |j| {
+                for (0..@max(result.shape[2], 1)) |k| {
+                    const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
+                    const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
+                    result.set(.{ i, j, k }, a + b);
+                }
             }
         }
     }
