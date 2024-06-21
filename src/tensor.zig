@@ -78,6 +78,18 @@ pub fn Tensor(dtype: type) type {
             };
         }
 
+        /// Reshapes this tensor.
+        /// Returns a view to the reshaped tensor.
+        /// NOTE: This doesn't resize the underlying tensor storage so the new size length should be smaller or as big as the original shape.
+        pub inline fn reshape(self: *const @This(), new_dims: struct { usize, usize, usize }) @This() {
+            std.debug.assert(@max(1, new_dims.@"2") * @max(1, new_dims.@"1") * @max(1, new_dims.@"0") <= self.constSlice().len);
+            return .{
+                .shape = new_dims,
+                .strides = .{ @max(new_dims.@"0", 1) * @max(new_dims.@"1", 1), @max(new_dims.@"2", 1), 1 },
+                .storage = self.storage.asView(),
+            };
+        }
+
         /// Returns a const slice representing the contents of this tensor.
         pub inline fn constSlice(self: *const @This()) []const dtype {
             return self.storage.constSlice();
