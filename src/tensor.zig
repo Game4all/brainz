@@ -80,9 +80,9 @@ pub fn Tensor(dtype: type) type {
 
         /// Reshapes this tensor.
         /// Returns a view to the reshaped tensor.
-        /// NOTE: This doesn't resize the underlying tensor storage so the new size length should be smaller or as big as the original shape.
+        /// NOTE: This doesn't resize the underlying tensor storage so the new size length should be smaller as big as the original shape.
         pub inline fn reshape(self: *const @This(), new_dims: struct { usize, usize, usize }) @This() {
-            std.debug.assert(@max(1, new_dims.@"2") * @max(1, new_dims.@"1") * @max(1, new_dims.@"0") <= self.constSlice().len);
+            std.debug.assert(@max(1, new_dims.@"2") * @max(1, new_dims.@"1") * @max(1, new_dims.@"0") == @max(1, self.shape.@"2") * @max(1, self.shape.@"1") * @max(1, self.shape.@"0"));
             return .{
                 .shape = new_dims,
                 .strides = .{ @max(new_dims.@"0", 1) * @max(new_dims.@"1", 1), @max(new_dims.@"2", 1), 1 },
@@ -109,14 +109,19 @@ pub fn Tensor(dtype: type) type {
         pub fn format(self: *const @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
             const shape = self.shape;
             var dat = @constCast(self);
-            _ = try writer.print("\n\r[\n\r", .{});
-            for (0..shape[0]) |i| {
-                try writer.print(" [", .{});
-                for (0..shape[1]) |j| {
-                    _ = try writer.print(" {e:.03}", .{dat.get(.{ i, j })});
-                    _ = try writer.write(",");
+
+            try writer.print("[\n\r", .{});
+            for (0..@max(shape[0], 1)) |h| {
+                _ = try writer.print(" [\n\r", .{});
+                for (0..@max(shape[1], 1)) |i| {
+                    try writer.print("   [", .{});
+                    for (0..@max(shape[2], 1)) |j| {
+                        _ = try writer.print(" {e:.03}", .{dat.get(.{ h, i, j })});
+                        _ = try writer.write(",");
+                    }
+                    try writer.print(" ],\n\r", .{});
                 }
-                try writer.print("]\n\r", .{});
+                try writer.print(" ],\n\r", .{});
             }
             try writer.print("]", .{});
         }
