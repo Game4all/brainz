@@ -12,15 +12,24 @@ pub const Op = enum {
     Exp,
     Log,
     Sum,
+    SumAxis,
 };
 
 /// Returns the shape of the tensor resulting from the given operation.
 /// Returns an error if the two operand dimensions aren't compatible with each other for the specified operation.
-pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: ?struct { usize, usize, usize }) error{ IncompatibleShapes, RequiresTwoShapes }!struct { usize, usize, usize } {
+pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: anytype) error{ IncompatibleShapes, RequiresTwoShapes, InvalidAxis }!struct { usize, usize, usize } {
     switch (op) {
-        inline .Add, .Sub, .Div, .Mul => try broadcastShape(shape1, shape2 orelse return error.RequiresTwoShapes),
+        inline .Add, .Sub, .Div, .Mul => {
+            return switch (@typeInfo(@TypeOf(shape2))) {
+                .Struct => try broadcastShape(shape1, shape2),
+                else => @compileError("Expected a shape for shape2."),
+            };
+        },
         inline .MatMul => { //requires mat1.n_cols == mat2.n_rows
-            const shape_2 = shape2 orelse return error.RequiresTwoShapes;
+            const shape_2 = switch (@typeInfo(@TypeOf(shape2))) {
+                .Struct => shape2,
+                else => @compileError("Expected a shape for shape2."),
+            };
 
             var final_shape: struct { usize, usize, usize } = .{ 0, 0, 0 };
 
@@ -43,6 +52,20 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: 
         },
         inline .Exp, .Log, .MulScalar => return shape1, //same shape as the input
         inline .Sum => .{ 1, 1, 1 }, // outputs a scalar
+        inline .SumAxis => {
+            const axis_idx = switch (@typeInfo(@TypeOf(shape2))) {
+                .ComptimeInt => shape2,
+                else => @compileError("Expected an integer for shape2."),
+            };
+
+            if (axis_idx > 3)
+                return error.InvalidAxis;
+
+            var final_shape = shape1;
+            final_shape[axis_idx] = 0;
+
+            return final_shape;
+        },
     }
 }
 
@@ -223,6 +246,37 @@ pub fn sum(comptime ty: type, mat1: *const Tensor(ty)) ty {
     return summed;
 }
 
+/// Performs summation of the specified axis on the operand tensor.
+pub fn sumAxis(comptime ty: type, mat1: *const Tensor(ty), comptime axis: usize, result: *Tensor(ty)) void {
+    const axes: struct { usize, usize, usize } = switch (axis) {
+        0 => .{ 1, 2, 0 },
+        1 => .{ 0, 2, 1 },
+        2 => .{ 0, 1, 2 },
+        else => unreachable,
+    };
+
+    for (0..@max(result.shape[axes[0]], 1)) |i| {
+        for (0..@max(result.shape[axes[1]], 1)) |j| {
+            var s: ty = 0;
+            for (0..@max(mat1.shape[axes[2]], 1)) |k| {
+                var index: struct { usize, usize, usize } = .{ 0, 0, 0 };
+                index[axes[0]] = i;
+                index[axes[1]] = j;
+                index[axes[2]] = k;
+
+                s += mat1.get(index);
+            }
+
+            var a: struct { usize, usize, usize } = .{ 0, 0, 0 };
+            a[axes[0]] = i;
+            a[axes[1]] = j;
+            a[axes[2]] = 0;
+
+            result.set(a, s);
+        }
+    }
+}
+
 test "shape broadcasting" {
     try std.testing.expectEqual(.{ 3, 2, 3 }, try broadcastShape(.{ 3, 2, 1 }, .{ 1, 2, 3 }));
     try std.testing.expectEqual(.{ 0, 2, 3 }, try broadcastShape(.{ 0, 2, 1 }, .{ 0, 1, 3 }));
@@ -304,4 +358,20 @@ test "mat mul test" {
     defer mat3.deinit(std.testing.allocator);
 
     matMul(f32, &mat1, &mat2, &mat3);
+}
+
+test "tensor axis sum" {
+    var mat1 = try Tensor(f32).empty(.{ 3, 3, 3 }, std.testing.allocator);
+    defer mat1.deinit(std.testing.allocator);
+    for (mat1.slice(), 0..) |*v, i|
+        v.* = @floatFromInt(i);
+
+    const shape = try opShape(.SumAxis, .{ 3, 3, 3 }, 0);
+    try std.testing.expectEqual(.{ 0, 3, 3 }, shape);
+
+    var result = try Tensor(f32).empty(.{ 0, 3, 3 }, std.testing.allocator);
+    defer result.deinit(std.testing.allocator);
+
+    sumAxis(f32, &mat1, 0, &result); // summing along the batch size
+    try std.testing.expectEqualSlices(f32, &[_]f32{ 27.0, 30.0, 33.0, 36.0, 39.0, 42.0, 45.0, 48.0, 51.0 }, result.constSlice());
 }
