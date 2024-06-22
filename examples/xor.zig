@@ -34,6 +34,14 @@ const XorMLP = struct {
         _ = self.layer_1.backwards(A);
     }
 
+    pub inline fn inputShape(self: *@This()) struct { usize, usize, usize } {
+        return self.layer_1.inputShape();
+    }
+
+    pub inline fn outputShape(self: *@This()) struct { usize, usize, usize } {
+        return self.layer_2.outputShape();
+    }
+
     /// Update the weights by the specified learning rate
     pub fn step(self: *@This(), ins: *const Matrix(f32), lr: f32) void {
         const layer2_inputs = self.layer_1.activation_outputs.transpose();
@@ -88,10 +96,10 @@ pub fn main() !void {
 
     const BCE = brainz.loss.BinaryCrossEntropy;
 
-    var expected_mat = try Matrix(f32).empty(.{ 0, 1, 1 }, alloc);
-    var loss_grad = try Matrix(f32).empty(.{ 0, 1, 1 }, alloc);
+    var expected_mat = try Matrix(f32).empty(mlp.outputShape(), alloc);
+    var loss_grad = try Matrix(f32).empty(mlp.outputShape(), alloc);
 
-    var input_mat = try Matrix(f32).empty(.{ 0, 2, 1 }, alloc);
+    var input_mat = try Matrix(f32).empty(mlp.inputShape(), alloc);
 
     try mlp.init(alloc);
 

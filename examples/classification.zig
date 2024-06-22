@@ -37,9 +37,9 @@ pub fn main() !void {
     var mlp: ClassificationMLP = undefined;
     try mlp.init(alloc);
 
-    var input_mat = try Tensor(f32).empty(.{ 0, 624, 1 }, alloc);
-    var expected_mat = try Tensor(f32).empty(.{ 0, 1, 1 }, alloc);
-    var loss_grad = try Tensor(f32).empty(.{ 0, 1, 1 }, alloc);
+    var input_mat = try Tensor(f32).empty(mlp.inputShape(), alloc);
+    var expected_mat = try Tensor(f32).empty(mlp.outputShape(), alloc);
+    var loss_grad = try Tensor(f32).empty(mlp.outputShape(), alloc);
 
     const BCE = brainz.loss.BinaryCrossEntropy;
 
@@ -107,6 +107,14 @@ const ClassificationMLP = struct {
     pub fn backwards(self: *@This(), loss_grad: *const Tensor(f32)) void {
         const A = self.layer_2.backwards(loss_grad);
         _ = self.layer_1.backwards(A);
+    }
+
+    pub inline fn inputShape(self: *@This()) struct { usize, usize, usize } {
+        return self.layer_1.inputShape();
+    }
+
+    pub inline fn outputShape(self: *@This()) struct { usize, usize, usize } {
+        return self.layer_2.outputShape();
     }
 
     /// Update the weights by the specified learning rate

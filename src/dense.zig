@@ -86,6 +86,14 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
             return &self.backwards_grad;
         }
 
+        pub inline fn inputShape(_: *@This()) struct { usize, usize, usize } {
+            return .{ 0, num_in, 1 };
+        }
+
+        pub inline fn outputShape(_: *@This()) struct { usize, usize, usize } {
+            return .{ 0, num_out, 1 };
+        }
+
         /// Frees the memory of this layer.
         pub fn deinit(self: *@This()) void {
             self.weights.deinit();
