@@ -19,7 +19,7 @@ pub fn Tensor(dtype: type) type {
         pub fn empty(dims: struct { usize, usize, usize }, allocator: Allocator) !@This() {
             return @This(){
                 .shape = dims,
-                .strides = .{ @max(dims.@"0", 1) * @max(dims.@"1", 1), @max(dims.@"2", 1), 1 },
+                .strides = .{ @max(dims.@"2", 1) * @max(dims.@"1", 1), @max(dims.@"2", 1), 1 },
                 .storage = try Storage(dtype).createOwned(dims, allocator),
             };
         }

@@ -345,16 +345,18 @@ test "mul op test" {
     try std.testing.expectEqualSlices(f32, &[_]f32{ 2.0, 4.0, 6.0, 8.0 }, mat3.constSlice());
 }
 
-test "mat mul test" {
-    var mat1 = try Tensor(f32).empty(.{ 0, 3, 1 }, std.testing.allocator);
-    mat1.setData(&[_]f32{ 1.0, 2.0, 3.0 });
+test "mat mul broadcasting test" {
+    var mat1 = try Tensor(f32).empty(.{ 3, 3, 1 }, std.testing.allocator);
+    mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 1.0, 2.0, 3.0 });
     defer mat1.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(2.0, mat1.get(.{ 2, 1, 0 }));
 
     var mat2 = try Tensor(f32).empty(.{ 0, 1, 3 }, std.testing.allocator);
     mat2.setData(&[_]f32{ 1.0, 2.0, 3.0 });
     defer mat2.deinit(std.testing.allocator);
 
-    var mat3 = try Tensor(f32).empty(.{ 0, 3, 3 }, std.testing.allocator);
+    var mat3 = try Tensor(f32).empty(.{ 3, 3, 3 }, std.testing.allocator);
     defer mat3.deinit(std.testing.allocator);
 
     matMul(f32, &mat1, &mat2, &mat3);
