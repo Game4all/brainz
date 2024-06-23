@@ -3,26 +3,19 @@ const brainz = @import("brainz");
 const Matrix = brainz.Matrix;
 const Allocator = std.mem.Allocator;
 
-const inputs = [_][2]f32{
-    [2]f32{ 0.0, 0.0 },
-    [2]f32{ 0.0, 1.0 },
-    [2]f32{ 1.0, 0.0 },
-    [2]f32{ 1.0, 1.0 },
-};
-
-const outputs = [_][1]f32{
-    [1]f32{0.0},
-    [1]f32{1.0},
-    [1]f32{1.0},
-    [1]f32{0.0},
-};
-
 const XorMLP = struct {
-    layer_1: brainz.Dense(2, 2, 0, brainz.activation.Sigmoid) = undefined,
-    layer_2: brainz.Dense(2, 1, 0, brainz.activation.Sigmoid) = undefined,
+    layer_1: brainz.Dense(2, 2, 4, brainz.activation.Sigmoid) = undefined,
+    layer_2: brainz.Dense(2, 1, 4, brainz.activation.Sigmoid) = undefined,
 
     weight_grad_1: Matrix(f32),
     weight_grad_2: Matrix(f32),
+
+    // flattened and averaged weight gradients
+    weight_grad_1_f: Matrix(f32),
+    weight_grad_2_f: Matrix(f32),
+
+    bias_grad_1: Matrix(f32),
+    bias_grad_2: Matrix(f32),
 
     pub fn forward(self: *@This(), input: *const Matrix(f32)) *Matrix(f32) {
         const a = self.layer_1.forward(input);
@@ -47,20 +40,30 @@ const XorMLP = struct {
         const layer2_inputs = self.layer_1.activation_outputs.transpose();
         const layer1_inputs = ins.transpose();
 
-        brainz.ops.mulScalar(f32, &self.layer_1.grad, lr, &self.layer_1.grad);
-        brainz.ops.mulScalar(f32, &self.layer_2.grad, lr, &self.layer_2.grad);
-
-        // compute the actual gradients wrt to the weights of the layers for weight update.
+        // compute the batched gradients wrt to the layers weights
         brainz.ops.matMul(f32, &self.layer_1.grad, &layer1_inputs, &self.weight_grad_1);
         brainz.ops.matMul(f32, &self.layer_2.grad, &layer2_inputs, &self.weight_grad_2);
 
-        // update the weights.
-        brainz.ops.sub(f32, &self.layer_1.weights, &self.weight_grad_1, &self.layer_1.weights);
-        brainz.ops.sub(f32, &self.layer_1.biases, &self.layer_1.grad, &self.layer_1.biases);
+        // sum the batched gradients for the weight and bias gradients
+        brainz.ops.reduce(f32, .Sum, &self.weight_grad_1, 0, &self.weight_grad_1_f);
+        brainz.ops.reduce(f32, .Sum, &self.weight_grad_2, 0, &self.weight_grad_2_f);
+        brainz.ops.reduce(f32, .Sum, &self.layer_1.grad, 0, &self.bias_grad_1);
+        brainz.ops.reduce(f32, .Sum, &self.layer_2.grad, 0, &self.bias_grad_2);
 
-        // update the biases.
-        brainz.ops.sub(f32, &self.layer_2.weights, &self.weight_grad_2, &self.layer_2.weights);
-        brainz.ops.sub(f32, &self.layer_2.biases, &self.layer_2.grad, &self.layer_2.biases);
+        // average the batched weight gradients and scale them wrt learning rate
+        brainz.ops.mulScalar(f32, &self.weight_grad_1_f, lr, &self.weight_grad_1_f);
+        brainz.ops.mulScalar(f32, &self.weight_grad_2_f, lr, &self.weight_grad_2_f);
+
+        // average the batched bias gradients and scale them wrt learning rate
+        brainz.ops.mulScalar(f32, &self.bias_grad_1, lr, &self.bias_grad_1);
+        brainz.ops.mulScalar(f32, &self.bias_grad_2, lr, &self.bias_grad_2);
+
+        // update the weights and biases for each layer
+        brainz.ops.sub(f32, &self.layer_1.weights, &self.weight_grad_1_f, &self.layer_1.weights);
+        brainz.ops.sub(f32, &self.layer_1.biases, &self.bias_grad_1, &self.layer_1.biases);
+
+        brainz.ops.sub(f32, &self.layer_2.weights, &self.weight_grad_2_f, &self.layer_2.weights);
+        brainz.ops.sub(f32, &self.layer_2.biases, &self.bias_grad_2, &self.layer_2.biases);
     }
 
     pub fn init(self: *@This(), alloc: Allocator) !void {
@@ -70,17 +73,23 @@ const XorMLP = struct {
         const shape1 = try brainz.ops.opShape(
             .MatMul,
             self.layer_1.grad.shape,
-            .{ 0, 1, 2 },
+            .{ 4, 1, 2 },
         );
 
         const shape2 = try brainz.ops.opShape(
             .MatMul,
             self.layer_2.grad.shape,
-            .{ 0, 1, 2 },
+            .{ 4, 1, 2 },
         );
 
         self.weight_grad_1 = try Matrix(f32).empty(shape1, alloc);
         self.weight_grad_2 = try Matrix(f32).empty(shape2, alloc);
+
+        self.weight_grad_1_f = try Matrix(f32).empty(try brainz.ops.opShape(.SumAxis, self.weight_grad_1.shape, 0), alloc);
+        self.weight_grad_2_f = try Matrix(f32).empty(try brainz.ops.opShape(.SumAxis, self.weight_grad_2.shape, 0), alloc);
+
+        self.bias_grad_1 = try Matrix(f32).empty(try brainz.ops.opShape(.SumAxis, self.outputShape(), 0), alloc);
+        self.bias_grad_2 = try Matrix(f32).empty(try brainz.ops.opShape(.SumAxis, self.outputShape(), 0), alloc);
     }
 };
 
@@ -97,33 +106,36 @@ pub fn main() !void {
     const BCE = brainz.loss.BinaryCrossEntropy;
 
     var expected_mat = try Matrix(f32).empty(mlp.outputShape(), alloc);
+    expected_mat.setData(@constCast(@ptrCast(&[_][1]f32{
+        [1]f32{0.0},
+        [1]f32{1.0},
+        [1]f32{1.0},
+        [1]f32{0.0},
+    })));
+
     var loss_grad = try Matrix(f32).empty(mlp.outputShape(), alloc);
 
     var input_mat = try Matrix(f32).empty(mlp.inputShape(), alloc);
+    input_mat.setData(@constCast(@ptrCast(&[_]f32{
+        0.0, 0.0,
+        0.0, 1.0,
+        1.0, 0.0,
+        1.0, 1.0,
+    })));
 
     try mlp.init(alloc);
 
     var out = std.io.getStdOut().writer();
 
-    for (0..50_000) |_| {
-        for (inputs, outputs) |i, o| {
-            input_mat.setData(@constCast(&i));
-            expected_mat.setData(@constCast(&o));
-
-            const result = mlp.forward(&input_mat);
-
-            // const loss = BCE.compute(result, &expected_mat);
-            BCE.computeDerivative(result, &expected_mat, &loss_grad);
-            mlp.backwards(&loss_grad);
-            mlp.step(&input_mat, 0.1);
-        }
-    }
-
-    for (inputs, outputs) |i, o| {
-        input_mat.setData(@constCast(&i));
-        expected_mat.setData(@constCast(&o));
-
+    for (0..500) |_| {
         const result = mlp.forward(&input_mat);
-        try out.print("Output: {} | Expected: {} \n", .{ result.get(.{ 0, 0, 0 }), expected_mat.get(.{ 0, 0, 0 }) });
+        const loss = BCE.compute(result, &expected_mat);
+
+        BCE.computeDerivative(result, &expected_mat, &loss_grad);
+        mlp.backwards(&loss_grad);
+        mlp.step(&input_mat, 0.8);
+        try out.print("\rloss: {}             ", .{loss});
     }
+    const result = mlp.forward(&input_mat);
+    try out.print("Outputs: {}", .{result});
 }
