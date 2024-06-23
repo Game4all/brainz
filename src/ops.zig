@@ -246,8 +246,13 @@ pub fn sum(comptime ty: type, mat1: *const Tensor(ty)) ty {
     return summed;
 }
 
-/// Performs summation of the specified axis on the operand tensor.
-pub fn sumAxis(comptime ty: type, mat1: *const Tensor(ty), comptime axis: usize, result: *Tensor(ty)) void {
+pub const ReduceOp = enum {
+    Sum,
+    Product,
+};
+
+/// Performs a reduction along the specified axis on the operand tensor.
+pub fn reduce(comptime ty: type, comptime op: ReduceOp, mat1: *const Tensor(ty), comptime axis: usize, result: *Tensor(ty)) void {
     const axes: struct { usize, usize, usize } = switch (axis) {
         0 => .{ 1, 2, 0 },
         1 => .{ 0, 2, 1 },
@@ -264,7 +269,10 @@ pub fn sumAxis(comptime ty: type, mat1: *const Tensor(ty), comptime axis: usize,
                 index[axes[1]] = j;
                 index[axes[2]] = k;
 
-                s += mat1.get(index);
+                switch (op) {
+                    inline .Sum => s += mat1.get(index),
+                    inline .Product => s *= mat1.get(index),
+                }
             }
 
             var a: struct { usize, usize, usize } = .{ 0, 0, 0 };
@@ -374,6 +382,6 @@ test "tensor axis sum" {
     var result = try Tensor(f32).empty(.{ 0, 3, 3 }, std.testing.allocator);
     defer result.deinit(std.testing.allocator);
 
-    sumAxis(f32, &mat1, 0, &result); // summing along the batch size
+    reduce(f32, &mat1, 0, &result); // summing along the batch size
     try std.testing.expectEqualSlices(f32, &[_]f32{ 27.0, 30.0, 33.0, 36.0, 39.0, 42.0, 45.0, 48.0, 51.0 }, result.constSlice());
 }

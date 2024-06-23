@@ -3,21 +3,6 @@ const brainz = @import("brainz");
 
 const Mat = brainz.Matrix;
 
-const inputs = [_][1]f32{
-    [1]f32{0.0},
-    [1]f32{1.0},
-    [1]f32{3.0},
-    [1]f32{9.0},
-};
-
-// outputs follow f(x)=2x + 1
-const outputs = [_][1]f32{
-    [1]f32{1.0},
-    [1]f32{3.0},
-    [1]f32{7.0},
-    [1]f32{19.0},
-};
-
 pub fn main() !void {
     var heap = std.heap.HeapAllocator.init();
     defer heap.deinit();
@@ -27,7 +12,7 @@ pub fn main() !void {
 
     const alloc = arena.allocator();
 
-    var dense: brainz.Dense(1, 1, 0, brainz.activation.Linear) = undefined;
+    var dense: brainz.Dense(1, 1, 4, brainz.activation.Linear) = undefined;
     try dense.init(alloc);
 
     const loss = brainz.loss.MSE;
@@ -40,46 +25,63 @@ pub fn main() !void {
     var loss_grad = try Mat(f32).empty(dense.outputShape(), alloc);
 
     // contains the input of the network
-    var input_mat = try Mat(f32).empty(dense.inputShape(), alloc);
-    var input_transposed = input_mat.transpose();
+    var inputs = try Mat(f32).empty(dense.inputShape(), alloc);
+    var inputsT = inputs.transpose();
+
+    inputs.setData(@constCast(@ptrCast(&[_][1]f32{
+        [1]f32{0.0},
+        [1]f32{1.0},
+        [1]f32{3.0},
+        [1]f32{9.0},
+    })));
+
+    // outputs follow f(x)=2x + 1
+    expected_mat.setData(@constCast(@ptrCast(&[_][1]f32{
+        [1]f32{1.0},
+        [1]f32{3.0},
+        [1]f32{7.0},
+        [1]f32{19.0},
+    })));
 
     // contains the gradient wrt to the weights
-    var weights_grad = try Mat(f32).empty(dense.weights.shape, alloc);
+    var weights_grad = try Mat(f32).empty(try brainz.ops.opShape(.MatMul, dense.grad.shape, inputsT.shape), alloc);
+
+    // holds the summed batched error gradients for the biases
+    var bias_grad_summed = try Mat(f32).empty(try brainz.ops.opShape(.SumAxis, dense.grad.shape, 0), alloc);
+    var weights_grad_summed = try Mat(f32).empty(try brainz.ops.opShape(.SumAxis, weights_grad.shape, 0), alloc);
 
     // train for 100 epochs.
-    for (0..100) |_| {
-        for (inputs, outputs) |i, o| {
-            input_mat.setData(@constCast(&i));
-            expected_mat.setData(@constCast(&o));
+    for (0..200) |_| {
+        const result = dense.forward(&inputs);
+        const loss_val = loss.compute(result, &expected_mat);
+        loss.computeDerivative(result, &expected_mat, &loss_grad);
 
-            const result = dense.forward(&input_mat);
-            const loss_val = loss.compute(result, &expected_mat);
-            loss.computeDerivative(result, &expected_mat, &loss_grad);
+        // compute the gradients for the layer.
+        // they are stored in the `.grad` field.
+        _ = dense.backwards(&loss_grad);
 
-            // compute the gradients for the layer.
-            // they are stored in the `.grad` field.
-            _ = dense.backwards(&loss_grad);
-            brainz.ops.mulScalar(f32, &dense.grad, 0.1, &dense.grad); // scale the error gradient by 0.1 so we don't have to do it twice for the weight and bias update.
+        // compute the batched gradients wrt to the weights.
+        brainz.ops.matMul(f32, &dense.grad, &inputsT, &weights_grad);
 
-            // compute the grad wrt to the weights.
-            brainz.ops.matMul(f32, &dense.grad, &input_transposed, &weights_grad);
+        // sum the batched gradients
+        brainz.ops.reduce(f32, .Sum, &dense.grad, 0, &bias_grad_summed);
+        brainz.ops.reduce(f32, .Sum, &weights_grad, 0, &weights_grad_summed);
 
-            // update the weights
-            brainz.ops.sub(f32, &dense.weights, &weights_grad, &dense.weights); // Wnew = Wold - Wgrad;
-            // update the bias
-            brainz.ops.sub(f32, &dense.biases, &dense.grad, &dense.biases); // Bnew = Bold - grad;
+        // average the summed batched gradients
+        // and scale them by the learning rate (0.05)
+        brainz.ops.mulScalar(f32, &bias_grad_summed, 0.05 * 0.25, &bias_grad_summed);
+        brainz.ops.mulScalar(f32, &weights_grad_summed, 0.05 * 0.25, &weights_grad_summed);
 
-            try out.print("\rloss: {}\t\t", .{loss_val});
-        }
+        // update the weights
+        brainz.ops.sub(f32, &dense.weights, &weights_grad_summed, &dense.weights); // Wnew = Wold - Wgrad;
+        // update the bias
+        brainz.ops.sub(f32, &dense.biases, &bias_grad_summed, &dense.biases); // Bnew = Bold - grad;
+
+        try out.print("\rloss: {}                   ", .{loss_val});
     }
 
-    try out.print("\rTraining done.                   \n", .{});
+    try out.print("\n==== Model Evaluation ===\n", .{});
 
-    for (inputs, outputs) |i, o| {
-        input_mat.setData(@constCast(&i));
-        expected_mat.setData(@constCast(&o));
-
-        const result = dense.forward(&input_mat);
-        try out.print("output: {} | expected: {} \n", .{ result.get(.{ 0, 0, 0 }), expected_mat.get(.{ 0, 0, 0 }) });
-    }
+    const results = dense.forward(&inputs);
+    try out.print("outputs: {}", .{results});
 }
