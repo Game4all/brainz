@@ -27,7 +27,7 @@ pub fn main() !void {
 
     const alloc = arena.allocator();
 
-    var dense: brainz.Dense(1, 1, brainz.activation.Linear) = undefined;
+    var dense: brainz.Dense(1, 1, 0, brainz.activation.Linear) = undefined;
     try dense.init(alloc);
 
     const loss = brainz.loss.MSE;

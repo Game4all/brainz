@@ -6,7 +6,7 @@ const Allocator = std.mem.Allocator;
 const Tensor = @import("tensor.zig").Tensor;
 
 /// A layer of densely connected neurons.
-pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activation: Activation) type {
+pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime batch_size: usize, comptime activation: Activation) type {
     return struct {
         /// The layer's weights.
         weights: Tensor(f32),
@@ -34,7 +34,7 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
 
             self.weights = try Tensor(f32).random(.{ 0, num_out, num_in }, rnd, alloc);
             self.biases = try Tensor(f32).random(.{ 0, num_out, 1 }, rnd, alloc);
-            self.last_outputs = try Tensor(f32).empty(try root.ops.opShape(.MatMul, self.weights.shape, .{ 0, num_in, 1 }), alloc);
+            self.last_outputs = try Tensor(f32).empty(try root.ops.opShape(.MatMul, self.weights.shape, .{ batch_size, num_in, 1 }), alloc);
             self.activation_outputs = try Tensor(f32).empty(self.last_outputs.shape, alloc);
             self.grad = try Tensor(f32).empty(self.last_outputs.shape, alloc);
 
@@ -49,7 +49,8 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
 
             self.weights = try Tensor(f32).empty(.{ 0, num_out, num_in }, alloc);
             self.biases = try Tensor(f32).empty(.{ 0, num_out, 1 }, alloc);
-            self.last_outputs = try Tensor(f32).empty(try root.ops.opShape(.MatMul, self.weights.shape, .{ 0, num_in, 1 }), alloc);
+
+            self.last_outputs = try Tensor(f32).empty(try root.ops.opShape(.MatMul, self.weights.shape, self.inputShape()), alloc);
             self.activation_outputs = try Tensor(f32).empty(self.last_outputs.shape, alloc);
 
             self.grad = try Tensor(f32).empty(self.last_outputs.shape, alloc);
@@ -87,11 +88,11 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime activatio
         }
 
         pub inline fn inputShape(_: *@This()) struct { usize, usize, usize } {
-            return .{ 0, num_in, 1 };
+            return .{ batch_size, num_in, 1 };
         }
 
         pub inline fn outputShape(_: *@This()) struct { usize, usize, usize } {
-            return .{ 0, num_out, 1 };
+            return .{ batch_size, num_out, 1 };
         }
 
         /// Frees the memory of this layer.
@@ -115,8 +116,8 @@ test "basic xor mlp" {
     const alloc = arena.allocator();
 
     const XorMLP = struct {
-        layer_1: Dense(2, 2, activations.Heaviside) = undefined,
-        layer_2: Dense(2, 1, activations.Heaviside) = undefined,
+        layer_1: Dense(2, 2, 0, activations.Heaviside) = undefined,
+        layer_2: Dense(2, 1, 0, activations.Heaviside) = undefined,
 
         pub fn forward(self: *@This(), input: *Tensor(f32)) *Tensor(f32) {
             const a = self.layer_1.forward(input);
@@ -192,7 +193,7 @@ test "linear regression backprop test" {
         [1]f32{19.0},
     };
 
-    var regressor: Dense(1, 1, Linear) = undefined;
+    var regressor: Dense(1, 1, 0, Linear) = undefined;
     try regressor.init(alloc);
 
     // contains the expected value for backprop

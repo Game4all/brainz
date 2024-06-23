@@ -92,8 +92,8 @@ pub fn main() !void {
 
 /// The MLP for binary classification.
 const ClassificationMLP = struct {
-    layer_1: brainz.Dense(624, 32, brainz.activation.Sigmoid) = undefined,
-    layer_2: brainz.Dense(32, 1, brainz.activation.Sigmoid) = undefined,
+    layer_1: brainz.Dense(624, 32, 0, brainz.activation.Sigmoid) = undefined,
+    layer_2: brainz.Dense(32, 1, 0, brainz.activation.Sigmoid) = undefined,
 
     // used for storing temporary weights gradients for updating weights.
     weight_grad_1: Tensor(f32),

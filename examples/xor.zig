@@ -18,8 +18,8 @@ const outputs = [_][1]f32{
 };
 
 const XorMLP = struct {
-    layer_1: brainz.Dense(2, 2, brainz.activation.Sigmoid) = undefined,
-    layer_2: brainz.Dense(2, 1, brainz.activation.Sigmoid) = undefined,
+    layer_1: brainz.Dense(2, 2, 0, brainz.activation.Sigmoid) = undefined,
+    layer_2: brainz.Dense(2, 1, 0, brainz.activation.Sigmoid) = undefined,
 
     weight_grad_1: Matrix(f32),
     weight_grad_2: Matrix(f32),
