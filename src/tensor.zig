@@ -100,6 +100,11 @@ pub fn Tensor(dtype: type) type {
             return self.storage.slice();
         }
 
+        /// Checks that the elements of this tensor are contiguous in memory.
+        pub inline fn isContiguous(self: *const @This()) bool {
+            return self.strides.@"0" >= self.strides.@"1" and self.strides.@"1" >= self.strides.@"2";
+        }
+
         /// Frees the values.
         pub fn deinit(self: *@This(), allocator: Allocator) void {
             self.storage.deinit(allocator);

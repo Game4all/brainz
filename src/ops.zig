@@ -89,13 +89,21 @@ pub fn broadcastShape(shape1: struct { usize, usize, usize }, shape2: struct { u
     return final_shape;
 }
 
-/// Performs shape checks on the operand and result tensor shapes
-fn checkSameShape(shape1: struct { usize, usize, usize }, shape2: struct { usize, usize, usize }, result: struct { usize, usize, usize }) bool {
+/// Performs various shape and stride checks on the operand and result tensors to select the most adapted operation implementation.
+/// - If the mat1 or mat2 or result tensors have different shapes, use the broadcasting impl (slowest)
+/// - If all shapes are equal and tensors are contiguous, use the SIMD impl (fatest)
+/// - else use the scalar fallback version (slower)
+inline fn selectOpBackend(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) enum { Broadcast, SameShapeNonContiguous, SameShapeContiguous } {
     inline for (0..3) |i| {
-        if (shape1[i] != shape2[i] or shape2[i] != result[i])
-            return false;
+        if (mat1.shape[i] != mat2.shape[i] or mat2.shape[i] != result.shape[i])
+            return .Broadcast;
     }
-    return true;
+
+    if (mat1.isContiguous() and mat2.isContiguous() and result.isContiguous()) {
+        return .SameShapeContiguous;
+    } else {
+        return .SameShapeNonContiguous;
+    }
 }
 
 /// Performs a matrix multiplication between two tensors.
@@ -136,26 +144,52 @@ pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     inline for (0..3) |i|
         std.debug.assert(result.shape[i] == outShape[i]);
 
-    if (checkSameShape(mat1.shape, mat2.shape, result.shape)) {
-        for (0..@max(result.shape[0], 1)) |i| {
-            for (0..@max(result.shape[1], 1)) |j| {
-                for (0..@max(result.shape[2], 1)) |k| {
-                    const a = mat1.get(.{ i, j, k });
-                    const b = mat2.get(.{ i, j, k });
-                    result.set(.{ i, j, k }, a - b);
+    switch (selectOpBackend(ty, mat1, mat2, result)) {
+        .Broadcast => {
+            for (0..@max(result.shape[0], 1)) |i| {
+                for (0..@max(result.shape[1], 1)) |j| {
+                    for (0..@max(result.shape[2], 1)) |k| {
+                        const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
+                        const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
+                        result.set(.{ i, j, k }, a - b);
+                    }
                 }
             }
-        }
-    } else {
-        for (0..@max(result.shape[0], 1)) |i| {
-            for (0..@max(result.shape[1], 1)) |j| {
-                for (0..@max(result.shape[2], 1)) |k| {
-                    const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
-                    const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
-                    result.set(.{ i, j, k }, a - b);
+        },
+        .SameShapeContiguous => {
+            const vectorSize = 8;
+
+            const arg_1 = mat1.constSlice();
+            const arg_2 = mat2.constSlice();
+            const res = result.slice();
+
+            const maxVecIndex = (res.len / vectorSize) * vectorSize;
+            const remIndex = res.len % vectorSize;
+
+            var pos: usize = 0;
+            while (pos < maxVecIndex) : (pos += vectorSize) {
+                const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
+                const vec_2: @Vector(vectorSize, ty) = arg_2[pos..][0..vectorSize].*;
+                const res_vec: @Vector(vectorSize, ty) = vec_1 - vec_2;
+
+                res[pos..][0..vectorSize].* = res_vec;
+            }
+
+            // processing the remaining elements which can't be vectorized.
+            for (maxVecIndex..(maxVecIndex + remIndex)) |i|
+                res[i] = arg_1[i] - arg_2[i];
+        },
+        .SameShapeNonContiguous => {
+            for (0..@max(result.shape[0], 1)) |i| {
+                for (0..@max(result.shape[1], 1)) |j| {
+                    for (0..@max(result.shape[2], 1)) |k| {
+                        const a = mat1.get(.{ i, j, k });
+                        const b = mat2.get(.{ i, j, k });
+                        result.set(.{ i, j, k }, a - b);
+                    }
                 }
             }
-        }
+        },
     }
 }
 
@@ -166,26 +200,52 @@ pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     inline for (0..3) |i|
         std.debug.assert(result.shape[i] == outShape[i]);
 
-    if (checkSameShape(mat1.shape, mat2.shape, result.shape)) {
-        for (0..@max(result.shape[0], 1)) |i| {
-            for (0..@max(result.shape[1], 1)) |j| {
-                for (0..@max(result.shape[2], 1)) |k| {
-                    const a = mat1.get(.{ i, j, k });
-                    const b = mat2.get(.{ i, j, k });
-                    result.set(.{ i, j, k }, a * b);
+    switch (selectOpBackend(ty, mat1, mat2, result)) {
+        .Broadcast => {
+            for (0..@max(result.shape[0], 1)) |i| {
+                for (0..@max(result.shape[1], 1)) |j| {
+                    for (0..@max(result.shape[2], 1)) |k| {
+                        const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
+                        const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
+                        result.set(.{ i, j, k }, a * b);
+                    }
                 }
             }
-        }
-    } else {
-        for (0..@max(result.shape[0], 1)) |i| {
-            for (0..@max(result.shape[1], 1)) |j| {
-                for (0..@max(result.shape[2], 1)) |k| {
-                    const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
-                    const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
-                    result.set(.{ i, j, k }, a * b);
+        },
+        .SameShapeContiguous => {
+            const vectorSize = 8;
+
+            const arg_1 = mat1.constSlice();
+            const arg_2 = mat2.constSlice();
+            const res = result.slice();
+
+            const maxVecIndex = (res.len / vectorSize) * vectorSize;
+            const remIndex = res.len % vectorSize;
+
+            var pos: usize = 0;
+            while (pos < maxVecIndex) : (pos += vectorSize) {
+                const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
+                const vec_2: @Vector(vectorSize, ty) = arg_2[pos..][0..vectorSize].*;
+                const res_vec: @Vector(vectorSize, ty) = vec_1 * vec_2;
+
+                res[pos..][0..vectorSize].* = res_vec;
+            }
+
+            // processing the remaining elements which can't be vectorized.
+            for (maxVecIndex..(maxVecIndex + remIndex)) |i|
+                res[i] = arg_1[i] * arg_2[i];
+        },
+        .SameShapeNonContiguous => {
+            for (0..@max(result.shape[0], 1)) |i| {
+                for (0..@max(result.shape[1], 1)) |j| {
+                    for (0..@max(result.shape[2], 1)) |k| {
+                        const a = mat1.get(.{ i, j, k });
+                        const b = mat2.get(.{ i, j, k });
+                        result.set(.{ i, j, k }, a * b);
+                    }
                 }
             }
-        }
+        },
     }
 }
 
@@ -196,26 +256,52 @@ pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     inline for (0..3) |i|
         std.debug.assert(result.shape[i] == outShape[i]);
 
-    if (checkSameShape(mat1.shape, mat2.shape, result.shape)) {
-        for (0..@max(result.shape[0], 1)) |i| {
-            for (0..@max(result.shape[1], 1)) |j| {
-                for (0..@max(result.shape[2], 1)) |k| {
-                    const a = mat1.get(.{ i, j, k });
-                    const b = mat2.get(.{ i, j, k });
-                    result.set(.{ i, j, k }, a + b);
+    switch (selectOpBackend(ty, mat1, mat2, result)) {
+        .Broadcast => {
+            for (0..@max(result.shape[0], 1)) |i| {
+                for (0..@max(result.shape[1], 1)) |j| {
+                    for (0..@max(result.shape[2], 1)) |k| {
+                        const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
+                        const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
+                        result.set(.{ i, j, k }, a + b);
+                    }
                 }
             }
-        }
-    } else {
-        for (0..@max(result.shape[0], 1)) |i| {
-            for (0..@max(result.shape[1], 1)) |j| {
-                for (0..@max(result.shape[2], 1)) |k| {
-                    const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
-                    const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
-                    result.set(.{ i, j, k }, a + b);
+        },
+        .SameShapeContiguous => {
+            const vectorSize = 8;
+
+            const arg_1 = mat1.constSlice();
+            const arg_2 = mat2.constSlice();
+            const res = result.slice();
+
+            const maxVecIndex = (res.len / vectorSize) * vectorSize;
+            const remIndex = res.len % vectorSize;
+
+            var pos: usize = 0;
+            while (pos < maxVecIndex) : (pos += vectorSize) {
+                const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
+                const vec_2: @Vector(vectorSize, ty) = arg_2[pos..][0..vectorSize].*;
+                const res_vec: @Vector(vectorSize, ty) = vec_1 + vec_2;
+
+                res[pos..][0..vectorSize].* = res_vec;
+            }
+
+            // processing the remaining elements which can't be vectorized.
+            for (maxVecIndex..(maxVecIndex + remIndex)) |i|
+                res[i] = arg_1[i] + arg_2[i];
+        },
+        .SameShapeNonContiguous => {
+            for (0..@max(result.shape[0], 1)) |i| {
+                for (0..@max(result.shape[1], 1)) |j| {
+                    for (0..@max(result.shape[2], 1)) |k| {
+                        const a = mat1.get(.{ i, j, k });
+                        const b = mat2.get(.{ i, j, k });
+                        result.set(.{ i, j, k }, a + b);
+                    }
                 }
             }
-        }
+        },
     }
 }
 
