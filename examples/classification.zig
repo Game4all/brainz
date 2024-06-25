@@ -46,27 +46,35 @@ pub fn main() !void {
     const time_before = try std.time.Instant.now();
 
     // train the network for 500 epochs.
-    for (0..500) |_| {
-        for (DATASET.DATASET, LABELS) |i, o| {
-            const data: *const [624]f32 = @ptrCast(&i);
+    // do minibatch training with a batch_size of 10.
+    const num_epochs = 500;
+    for (0..num_epochs) |a| {
+        var i: usize = 0;
+        var loss: f32 = 0.0;
+        const epoch_start_time = try std.time.Instant.now();
 
-            input_mat.setData(@constCast(data));
-            expected_mat.set(.{ 0, 0, 0 }, o);
+        while (i < 100) : (i += 10) {
+            const data: *const [6240]f32 = @ptrCast(&DATASET.DATASET[i]);
+            input_mat.setData(data);
+            expected_mat.setData(@constCast(LABELS[i..(i + 10)]));
 
-            // forward prop first
             const result = mlp.forward(&input_mat);
-
-            // then backprop through the net layers
             BCE.computeDerivative(result, &expected_mat, &loss_grad);
-            mlp.backwards(&loss_grad);
+            loss = BCE.compute(result, &expected_mat);
 
-            // then update the network weights
-            mlp.step(&input_mat, 0.1);
+            mlp.backwards(&loss_grad);
+            mlp.step(&input_mat, 0.5);
         }
+
+        const epoch_end_time = try std.time.Instant.now();
+        const elapsed_time = epoch_end_time.since(epoch_start_time) / std.time.ns_per_ms;
+        const num_iter_per_s = std.time.ms_per_s / elapsed_time;
+
+        try out.print("\r [{} / {}] loss: {} ({} ms/epoch | {} epochs/s)                        ", .{ a, num_epochs, loss, elapsed_time, num_iter_per_s });
     }
 
     const time_after = try std.time.Instant.now();
-    try out.print("Took {}ms for training \n", .{time_after.since(time_before) / std.time.ns_per_ms});
+    try out.print("\nTook {}ms for training \n", .{time_after.since(time_before) / std.time.ns_per_ms});
 
     try out.print("========= Evaluating network ==========\n", .{});
 
@@ -92,12 +100,19 @@ pub fn main() !void {
 
 /// The MLP for binary classification.
 const ClassificationMLP = struct {
-    layer_1: brainz.Dense(624, 32, 0, brainz.activation.Sigmoid) = undefined,
-    layer_2: brainz.Dense(32, 1, 0, brainz.activation.Sigmoid) = undefined,
+    layer_1: brainz.Dense(624, 32, 10, brainz.activation.Sigmoid) = undefined,
+    layer_2: brainz.Dense(32, 1, 10, brainz.activation.Sigmoid) = undefined,
 
     // used for storing temporary weights gradients for updating weights.
     weight_grad_1: Tensor(f32),
     weight_grad_2: Tensor(f32),
+
+    // flattened and averaged weight gradients
+    weight_grad_1_f: Tensor(f32),
+    weight_grad_2_f: Tensor(f32),
+
+    bias_grad_1: Tensor(f32),
+    bias_grad_2: Tensor(f32),
 
     pub fn forward(self: *@This(), input: *const Tensor(f32)) *Tensor(f32) {
         const a = self.layer_1.forward(input);
@@ -122,21 +137,30 @@ const ClassificationMLP = struct {
         const layer2_inputs = self.layer_1.activation_outputs.transpose();
         const layer1_inputs = ins.transpose();
 
-        // scale the error gradients as per the learning rate.
-        brainz.ops.mulScalar(f32, &self.layer_1.grad, lr, &self.layer_1.grad);
-        brainz.ops.mulScalar(f32, &self.layer_2.grad, lr, &self.layer_2.grad);
-
-        // compute the actual gradients wrt to the weights of the layers for weight update.
+        // compute the batched gradients wrt to the layers weights
         brainz.ops.matMul(f32, &self.layer_1.grad, &layer1_inputs, &self.weight_grad_1);
         brainz.ops.matMul(f32, &self.layer_2.grad, &layer2_inputs, &self.weight_grad_2);
 
-        // update the weights.
-        brainz.ops.sub(f32, &self.layer_1.weights, &self.weight_grad_1, &self.layer_1.weights);
-        brainz.ops.sub(f32, &self.layer_1.biases, &self.layer_1.grad, &self.layer_1.biases);
+        // sum the batched gradients for the weight and bias gradients
+        brainz.ops.reduce(f32, .Sum, &self.weight_grad_1, 0, &self.weight_grad_1_f);
+        brainz.ops.reduce(f32, .Sum, &self.weight_grad_2, 0, &self.weight_grad_2_f);
+        brainz.ops.reduce(f32, .Sum, &self.layer_1.grad, 0, &self.bias_grad_1);
+        brainz.ops.reduce(f32, .Sum, &self.layer_2.grad, 0, &self.bias_grad_2);
 
-        // update the biases.
-        brainz.ops.sub(f32, &self.layer_2.weights, &self.weight_grad_2, &self.layer_2.weights);
-        brainz.ops.sub(f32, &self.layer_2.biases, &self.layer_2.grad, &self.layer_2.biases);
+        // average the batched weight gradients and scale them wrt learning rate
+        brainz.ops.mulScalar(f32, &self.weight_grad_1_f, lr * 0.1, &self.weight_grad_1_f);
+        brainz.ops.mulScalar(f32, &self.weight_grad_2_f, lr * 0.1, &self.weight_grad_2_f);
+
+        // average the batched bias gradients and scale them wrt learning rate
+        brainz.ops.mulScalar(f32, &self.bias_grad_1, lr * 0.1, &self.bias_grad_1);
+        brainz.ops.mulScalar(f32, &self.bias_grad_2, lr * 0.1, &self.bias_grad_2);
+
+        // update the weights and biases for each layer
+        brainz.ops.sub(f32, &self.layer_1.weights, &self.weight_grad_1_f, &self.layer_1.weights);
+        brainz.ops.sub(f32, &self.layer_1.biases, &self.bias_grad_1, &self.layer_1.biases);
+
+        brainz.ops.sub(f32, &self.layer_2.weights, &self.weight_grad_2_f, &self.layer_2.weights);
+        brainz.ops.sub(f32, &self.layer_2.biases, &self.bias_grad_2, &self.layer_2.biases);
     }
 
     pub fn init(self: *@This(), alloc: Allocator) !void {
@@ -157,5 +181,11 @@ const ClassificationMLP = struct {
 
         self.weight_grad_1 = try Tensor(f32).empty(wg1_shape, alloc);
         self.weight_grad_2 = try Tensor(f32).empty(wg2_shape, alloc);
+
+        self.weight_grad_1_f = try Tensor(f32).empty(try brainz.ops.opShape(.SumAxis, wg1_shape, 0), alloc);
+        self.weight_grad_2_f = try Tensor(f32).empty(try brainz.ops.opShape(.SumAxis, wg2_shape, 0), alloc);
+
+        self.bias_grad_1 = try Tensor(f32).empty(try brainz.ops.opShape(.SumAxis, self.layer_1.outputShape(), 0), alloc);
+        self.bias_grad_2 = try Tensor(f32).empty(try brainz.ops.opShape(.SumAxis, self.layer_2.outputShape(), 0), alloc);
     }
 };
