@@ -133,8 +133,23 @@ pub fn mulScalar(comptime ty: type, mat1: *const Tensor(ty), scalar: ty, result:
     inline for (0..3) |i|
         std.debug.assert(result.shape[i] == mat1.shape[i]);
 
-    for (mat1.constSlice(), result.slice()) |v, *r|
-        r.* = v * scalar;
+    const vectorSize = std.simd.suggestVectorLength(f32) orelse 1;
+
+    const arg_1 = mat1.constSlice();
+    const res = result.slice();
+
+    const maxVecIndex = (res.len / vectorSize) * vectorSize;
+    const remIndex = res.len % vectorSize;
+
+    var pos: usize = 0;
+    while (pos < maxVecIndex) : (pos += vectorSize) {
+        const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
+        res[pos..][0..vectorSize].* = vec_1 * @as(@Vector(vectorSize, ty), @splat(scalar));
+    }
+
+    // processing the remaining elements which can't be vectorized.
+    for (maxVecIndex..(maxVecIndex + remIndex)) |i|
+        res[i] = arg_1[i] * scalar;
 }
 
 /// Performs substraction of two tensors.
@@ -157,7 +172,7 @@ pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
             }
         },
         .SameShapeContiguous => {
-            const vectorSize = 8;
+            const vectorSize = std.simd.suggestVectorLength(f32) orelse 1;
 
             const arg_1 = mat1.constSlice();
             const arg_2 = mat2.constSlice();
@@ -213,7 +228,7 @@ pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
             }
         },
         .SameShapeContiguous => {
-            const vectorSize = 8;
+            const vectorSize = std.simd.suggestVectorLength(f32) orelse 1;
 
             const arg_1 = mat1.constSlice();
             const arg_2 = mat2.constSlice();
@@ -269,7 +284,7 @@ pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
             }
         },
         .SameShapeContiguous => {
-            const vectorSize = 8;
+            const vectorSize = std.simd.suggestVectorLength(f32) orelse 1;
 
             const arg_1 = mat1.constSlice();
             const arg_2 = mat2.constSlice();
