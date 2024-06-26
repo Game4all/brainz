@@ -73,13 +73,13 @@ const XorMLP = struct {
         const shape1 = try brainz.ops.opShape(
             .MatMul,
             self.layer_1.grad.shape,
-            .{ 4, 1, 2 },
+            try brainz.ops.opShape(.Transpose, self.layer_1.inputShape(), null),
         );
 
         const shape2 = try brainz.ops.opShape(
             .MatMul,
             self.layer_2.grad.shape,
-            .{ 4, 1, 2 },
+            try brainz.ops.opShape(.Transpose, self.layer_1.outputShape(), null),
         );
 
         self.weight_grad_1 = try Matrix(f32).empty(shape1, alloc);
@@ -127,7 +127,7 @@ pub fn main() !void {
 
     var out = std.io.getStdOut().writer();
 
-    for (0..500) |_| {
+    for (0..5000) |_| {
         const result = mlp.forward(&input_mat);
         const loss = BCE.compute(result, &expected_mat);
 

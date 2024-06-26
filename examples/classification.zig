@@ -63,7 +63,7 @@ pub fn main() !void {
             loss = BCE.compute(result, &expected_mat);
 
             mlp.backwards(&loss_grad);
-            mlp.step(&input_mat, 0.5);
+            mlp.step(&input_mat, 0.65);
         }
 
         const epoch_end_time = try std.time.Instant.now();
@@ -161,13 +161,13 @@ const ClassificationMLP = struct {
         const wg1_shape = try brainz.ops.opShape(
             .MatMul,
             self.layer_1.grad.shape,
-            .{ 0, 1, 624 },
+            try brainz.ops.opShape(.Transpose, self.layer_1.inputShape(), null),
         );
 
         const wg2_shape = try brainz.ops.opShape(
             .MatMul,
             self.layer_2.grad.shape,
-            .{ 0, 1, 32 },
+            try brainz.ops.opShape(.Transpose, self.layer_1.outputShape(), null),
         );
 
         self.weight_grad_1 = try Tensor(f32).empty(wg1_shape, alloc);

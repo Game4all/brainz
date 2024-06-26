@@ -13,6 +13,7 @@ pub const Op = enum {
     Log,
     Sum,
     SumAxis,
+    Transpose,
 };
 
 /// Returns the shape of the tensor resulting from the given operation.
@@ -66,6 +67,7 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: 
 
             return final_shape;
         },
+        inline .Transpose => return .{ shape1.@"0", shape1.@"2", shape1.@"1" },
     }
 }
 
