@@ -78,23 +78,14 @@ pub fn main() !void {
 
     try out.print("========= Evaluating network ==========\n", .{});
 
-    // initialize a RNG for sampling random samples to evaluate.
-    var rnd = blk: {
-        var seed: u64 = undefined;
-        try std.posix.getrandom(@constCast(@alignCast(std.mem.asBytes(&seed))));
-        var pcg = std.Random.Pcg.init(seed);
-        break :blk pcg.random();
-    };
+    const eval_data: *const [6240]f32 = @ptrCast(&DATASET.EVAL_DATASET[0]);
+    input_mat.setData(@constCast(eval_data));
+    expected_mat.setData(@constCast(&EVAL_LABELS));
 
-    // sample 10 random items from the eval dataset to evaluate model performance.
-    for (0..10) |_| {
-        const idx = rnd.intRangeAtMost(usize, 0, DATASET.EVAL_DATASET.len - 1);
-        const data: *const [624]f32 = @ptrCast(&DATASET.EVAL_DATASET[idx]);
-        input_mat.setData(@constCast(data));
+    const results = mlp.forward(&input_mat);
 
-        const result = mlp.forward(&input_mat);
-
-        try out.print("Result: {} | Expected: {} \n", .{ @round(result.get(.{ 0, 0, 0 })), EVAL_LABELS[idx] });
+    for (0..10) |i| {
+        try out.print("Out: {} | Expected: {} \n", .{ @round(results.get(.{ 0, i, 0 })), expected_mat.get(.{ 0, i, 0 }) });
     }
 }
 
