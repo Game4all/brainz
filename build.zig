@@ -22,46 +22,28 @@ pub fn build(b: *std.Build) void {
 
     // examples
 
-    const xor_example = b.addExecutable(.{
-        .optimize = optimize,
-        .target = target,
-        .root_source_file = b.path("examples/xor.zig"),
-        .name = "xor_example",
-    });
+    const examples = .{
+        .{ "example_xor", "examples/xor.zig", "XOR mlp" },
+        .{ "example_linreg", "examples/linear_regression.zig", "Linear regression" },
+        .{ "example_classification", "examples/classification.zig", "Classificator" },
+    };
 
-    xor_example.root_module.addImport("brainz", lib);
+    inline for (examples) |example| {
+        const name, const path, const description = example;
 
-    var run_xor_example = b.addRunArtifact(xor_example);
+        const executable = b.addExecutable(.{
+            .optimize = optimize,
+            .target = target,
+            .root_source_file = b.path(path),
+            .name = name,
+        });
 
-    _ = b.step("example_xor", "Runs the XOR Mlp example")
-        .dependOn(&run_xor_example.step);
+        if (std.mem.eql(u8, name, "example_classification"))
+            executable.addIncludePath(b.path("examples/datasets/"));
 
-    const lin_reg_example = b.addExecutable(.{
-        .optimize = optimize,
-        .target = target,
-        .root_source_file = b.path("examples/linear_regression.zig"),
-        .name = "lin_reg_example",
-    });
-
-    lin_reg_example.root_module.addImport("brainz", lib);
-
-    var run_lin_reg_example = b.addRunArtifact(lin_reg_example);
-
-    _ = b.step("example_linreg", "Runs the linear regression example")
-        .dependOn(&run_lin_reg_example.step);
-
-    const classification_example = b.addExecutable(.{
-        .optimize = optimize,
-        .target = target,
-        .root_source_file = b.path("examples/classification.zig"),
-        .name = "classification",
-    });
-    classification_example.addIncludePath(b.path("examples/datasets/"));
-
-    classification_example.root_module.addImport("brainz", lib);
-
-    var run_classification_example = b.addRunArtifact(classification_example);
-
-    _ = b.step("example_classification", "Runs a classification example trained on real life data")
-        .dependOn(&run_classification_example.step);
+        executable.root_module.addImport("brainz", lib);
+        const run_step = b.addRunArtifact(executable);
+        _ = b.step(name, "Run the " ++ description ++ " example")
+            .dependOn(&run_step.step);
+    }
 }
