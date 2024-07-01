@@ -485,6 +485,6 @@ test "tensor axis sum" {
     var result = try Tensor(f32).empty(.{ 0, 3, 3 }, std.testing.allocator);
     defer result.deinit(std.testing.allocator);
 
-    reduce(f32, &mat1, 0, &result); // summing along the batch size
+    reduce(f32, .Sum, &mat1, 0, &result); // summing along the batch size
     try std.testing.expectEqualSlices(f32, &[_]f32{ 27.0, 30.0, 33.0, 36.0, 39.0, 42.0, 45.0, 48.0, 51.0 }, result.constSlice());
 }
