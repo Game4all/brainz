@@ -32,14 +32,14 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime batch_siz
                 break :blk pcg.random();
             };
 
-            self.weights = try Tensor(f32).random(.{ 0, num_out, num_in }, rnd, alloc);
-            self.biases = try Tensor(f32).random(.{ 0, num_out, 1 }, rnd, alloc);
-            self.last_outputs = try Tensor(f32).empty(try root.ops.opShape(.MatMul, self.weights.shape, .{ batch_size, num_in, 1 }), alloc);
-            self.activation_outputs = try Tensor(f32).empty(self.last_outputs.shape, alloc);
-            self.grad = try Tensor(f32).empty(self.last_outputs.shape, alloc);
+            self.weights = try Tensor(f32).allocRandom(.{ 0, num_out, num_in }, rnd, alloc);
+            self.biases = try Tensor(f32).allocRandom(.{ 0, num_out, 1 }, rnd, alloc);
+            self.last_outputs = try Tensor(f32).alloc(try root.ops.opShape(.MatMul, self.weights.shape, .{ batch_size, num_in, 1 }), alloc);
+            self.activation_outputs = try Tensor(f32).alloc(self.last_outputs.shape, alloc);
+            self.grad = try Tensor(f32).alloc(self.last_outputs.shape, alloc);
 
             const w_transposed = self.weights.transpose();
-            self.backwards_grad = try Tensor(f32).empty(try root.ops.opShape(.MatMul, w_transposed.shape, self.grad.shape), alloc);
+            self.backwards_grad = try Tensor(f32).alloc(try root.ops.opShape(.MatMul, w_transposed.shape, self.grad.shape), alloc);
         }
 
         /// Initializes the layer with the given allocator and given weights.
@@ -47,19 +47,16 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime batch_siz
             std.debug.assert(w.len == num_in * num_out);
             std.debug.assert(b.len == num_out);
 
-            self.weights = try Tensor(f32).empty(.{ 0, num_out, num_in }, alloc);
-            self.biases = try Tensor(f32).empty(.{ 0, num_out, 1 }, alloc);
+            self.weights = try Tensor(f32).fromSlice(.{ 0, num_out, num_in }, w);
+            self.biases = try Tensor(f32).fromSlice(.{ 0, num_out, 1 }, b);
 
-            self.last_outputs = try Tensor(f32).empty(try root.ops.opShape(.MatMul, self.weights.shape, self.inputShape()), alloc);
-            self.activation_outputs = try Tensor(f32).empty(self.last_outputs.shape, alloc);
+            self.last_outputs = try Tensor(f32).alloc(try root.ops.opShape(.MatMul, self.weights.shape, self.inputShape()), alloc);
+            self.activation_outputs = try Tensor(f32).alloc(self.last_outputs.shape, alloc);
 
-            self.grad = try Tensor(f32).empty(self.last_outputs.shape, alloc);
+            self.grad = try Tensor(f32).alloc(self.last_outputs.shape, alloc);
 
             const w_transposed = self.weights.transpose();
-            self.backwards_grad = try Tensor(f32).empty(try root.ops.opShape(.MatMul, w_transposed.shape, self.grad.shape), alloc);
-
-            @memcpy(self.weights.slice(), w);
-            @memcpy(self.biases.slice(), b);
+            self.backwards_grad = try Tensor(f32).alloc(try root.ops.opShape(.MatMul, w_transposed.shape, self.grad.shape), alloc);
         }
 
         /// Performs forward propagation through this layer.
@@ -146,7 +143,7 @@ test "basic xor mlp" {
     var xor_mlp: XorMLP = undefined;
     try xor_mlp.init(alloc);
 
-    var inputs = try Tensor(f32).empty(.{ 0, 2, 1 }, alloc);
+    var inputs = try Tensor(f32).alloc(.{ 0, 2, 1 }, alloc);
 
     const ins = [_][2]f32{
         [2]f32{ 0.0, 0.0 },
@@ -197,16 +194,16 @@ test "linear regression backprop test" {
     try regressor.init(alloc);
 
     // contains the expected value for backprop
-    var expected_mat = try Tensor(f32).empty(.{ 0, 1, 1 }, alloc);
+    var expected_mat = try Tensor(f32).alloc(.{ 0, 1, 1 }, alloc);
     // contains the computed loss gradient
-    var loss_grad = try Tensor(f32).empty(.{ 0, 1, 1 }, alloc);
+    var loss_grad = try Tensor(f32).alloc(.{ 0, 1, 1 }, alloc);
 
     // contains the input of the network
-    var input_mat = try Tensor(f32).empty(.{ 0, 1, 1 }, alloc);
+    var input_mat = try Tensor(f32).alloc(.{ 0, 1, 1 }, alloc);
     var input_transposed = input_mat.transpose();
 
     // contains the gradient wrt to the weights
-    var weights_grad = try Tensor(f32).empty(.{ 0, 1, 1 }, alloc);
+    var weights_grad = try Tensor(f32).alloc(.{ 0, 1, 1 }, alloc);
 
     // train for 100 epochs.
     for (0..100) |_| {

@@ -400,15 +400,15 @@ test "shape broadcasting" {
 }
 
 test "add op test" {
-    var mat1 = try Tensor(f32).empty(.{ 0, 2, 2 }, std.testing.allocator);
+    var mat1 = try Tensor(f32).alloc(.{ 0, 2, 2 }, std.testing.allocator);
     defer mat1.deinit(std.testing.allocator);
 
-    var mat2 = try Tensor(f32).empty(.{ 0, 0, 2 }, std.testing.allocator);
+    var mat2 = try Tensor(f32).alloc(.{ 0, 0, 2 }, std.testing.allocator);
     defer mat2.deinit(std.testing.allocator);
 
     const mat3Sh = try broadcastShape(mat1.shape, mat2.shape);
 
-    var mat3 = try Tensor(f32).empty(mat3Sh, std.testing.allocator);
+    var mat3 = try Tensor(f32).alloc(mat3Sh, std.testing.allocator);
     defer mat3.deinit(std.testing.allocator);
 
     mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 4.0 });
@@ -419,15 +419,15 @@ test "add op test" {
 }
 
 test "sub op test" {
-    var mat1 = try Tensor(f32).empty(.{ 0, 2, 2 }, std.testing.allocator);
+    var mat1 = try Tensor(f32).alloc(.{ 0, 2, 2 }, std.testing.allocator);
     defer mat1.deinit(std.testing.allocator);
 
-    var mat2 = try Tensor(f32).empty(.{ 0, 0, 2 }, std.testing.allocator);
+    var mat2 = try Tensor(f32).alloc(.{ 0, 0, 2 }, std.testing.allocator);
     defer mat2.deinit(std.testing.allocator);
 
     const mat3Sh = try broadcastShape(mat1.shape, mat2.shape);
 
-    var mat3 = try Tensor(f32).empty(mat3Sh, std.testing.allocator);
+    var mat3 = try Tensor(f32).alloc(mat3Sh, std.testing.allocator);
     defer mat3.deinit(std.testing.allocator);
 
     mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 4.0 });
@@ -438,15 +438,15 @@ test "sub op test" {
 }
 
 test "mul op test" {
-    var mat1 = try Tensor(f32).empty(.{ 0, 2, 2 }, std.testing.allocator);
+    var mat1 = try Tensor(f32).alloc(.{ 0, 2, 2 }, std.testing.allocator);
     defer mat1.deinit(std.testing.allocator);
 
-    var mat2 = try Tensor(f32).empty(.{ 0, 0, 2 }, std.testing.allocator);
+    var mat2 = try Tensor(f32).alloc(.{ 0, 0, 2 }, std.testing.allocator);
     defer mat2.deinit(std.testing.allocator);
 
     const mat3Sh = try broadcastShape(mat1.shape, mat2.shape);
 
-    var mat3 = try Tensor(f32).empty(mat3Sh, std.testing.allocator);
+    var mat3 = try Tensor(f32).alloc(mat3Sh, std.testing.allocator);
     defer mat3.deinit(std.testing.allocator);
 
     mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 4.0 });
@@ -457,24 +457,24 @@ test "mul op test" {
 }
 
 test "mat mul broadcasting test" {
-    var mat1 = try Tensor(f32).empty(.{ 3, 3, 1 }, std.testing.allocator);
+    var mat1 = try Tensor(f32).alloc(.{ 3, 3, 1 }, std.testing.allocator);
     mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 1.0, 2.0, 3.0 });
     defer mat1.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(2.0, mat1.get(.{ 2, 1, 0 }));
 
-    var mat2 = try Tensor(f32).empty(.{ 0, 1, 3 }, std.testing.allocator);
+    var mat2 = try Tensor(f32).alloc(.{ 0, 1, 3 }, std.testing.allocator);
     mat2.setData(&[_]f32{ 1.0, 2.0, 3.0 });
     defer mat2.deinit(std.testing.allocator);
 
-    var mat3 = try Tensor(f32).empty(.{ 3, 3, 3 }, std.testing.allocator);
+    var mat3 = try Tensor(f32).alloc(.{ 3, 3, 3 }, std.testing.allocator);
     defer mat3.deinit(std.testing.allocator);
 
     matMul(f32, &mat1, &mat2, &mat3);
 }
 
 test "tensor axis sum" {
-    var mat1 = try Tensor(f32).empty(.{ 3, 3, 3 }, std.testing.allocator);
+    var mat1 = try Tensor(f32).alloc(.{ 3, 3, 3 }, std.testing.allocator);
     defer mat1.deinit(std.testing.allocator);
     for (mat1.slice(), 0..) |*v, i|
         v.* = @floatFromInt(i);
@@ -482,7 +482,7 @@ test "tensor axis sum" {
     const shape = try opShape(.SumAxis, .{ 3, 3, 3 }, 0);
     try std.testing.expectEqual(.{ 0, 3, 3 }, shape);
 
-    var result = try Tensor(f32).empty(.{ 0, 3, 3 }, std.testing.allocator);
+    var result = try Tensor(f32).alloc(.{ 0, 3, 3 }, std.testing.allocator);
     defer result.deinit(std.testing.allocator);
 
     reduce(f32, .Sum, &mat1, 0, &result); // summing along the batch size

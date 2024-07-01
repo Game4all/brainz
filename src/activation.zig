@@ -112,10 +112,10 @@ fn softmax_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
 }
 
 test "softmax activation" {
-    var test_mat = try Tensor(f32).empty(.{ 0, 3, 1 }, std.testing.allocator);
+    var test_mat = try Tensor(f32).alloc(.{ 0, 3, 1 }, std.testing.allocator);
     defer test_mat.deinit(std.testing.allocator);
 
-    var softmax_mat = try Tensor(f32).empty(test_mat.shape, std.testing.allocator);
+    var softmax_mat = try Tensor(f32).alloc(test_mat.shape, std.testing.allocator);
     defer softmax_mat.deinit(std.testing.allocator);
 
     test_mat.set(.{ 0, 0, 0 }, 1.0);
@@ -127,10 +127,10 @@ test "softmax activation" {
 }
 
 test "sigmoid activation" {
-    var test_mat = try Tensor(f32).withValue(.{ 0, 3, 1 }, 1.0, std.testing.allocator);
+    var test_mat = try Tensor(f32).allocWithValue(.{ 0, 3, 1 }, 1.0, std.testing.allocator);
     defer test_mat.deinit(std.testing.allocator);
 
-    var sigmoid_mat = try Tensor(f32).empty(test_mat.shape, std.testing.allocator);
+    var sigmoid_mat = try Tensor(f32).alloc(test_mat.shape, std.testing.allocator);
     defer sigmoid_mat.deinit(std.testing.allocator);
 
     _ = Sigmoid.apply(&test_mat, &sigmoid_mat);

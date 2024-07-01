@@ -3,37 +3,55 @@ const std = @import("std");
 const Random = std.rand.Random;
 const Allocator = std.mem.Allocator;
 
-/// A Tensor with NxMxL dimensions
-///
-/// NOTE: Tensors should be allocated with an arena allocator as they are designed to be all pre-allocated and freed at once.
+/// A Tensor with NxMxL dimensions.
+/// A tensor is simply a view into a block of memory such that "views" of a tensor are tensors pointing to the **same memory block** (with different strides).
+/// NOTE: Tensors don't automatically manage ownership of the memory they point to and as such the memory management is up to the programmer (use an ArenaAllocator).
 pub fn Tensor(dtype: type) type {
     return struct {
         /// The dimensions of tensor matrix (N batches x M rows x N columns)
         shape: struct { usize, usize, usize },
         // The tensor strides.
         strides: struct { usize, usize, usize },
-        /// The underlying storage of this tensor.
-        storage: Storage(dtype),
+        /// Pointer to the data of this tensor.
+        data: []dtype,
 
-        /// Creates a tensor with all its values set to the default value.
-        pub fn empty(dims: struct { usize, usize, usize }, allocator: Allocator) !@This() {
-            return @This(){
+        /// Creates a tensor of specified dimensions from the specified slice.
+        /// NOTE: The created tensor **doesn't own** the slice and care must be taken by the programmer to deallocate it.
+        pub fn fromSlice(dims: struct { usize, usize, usize }, data: []dtype) !@This() {
+            if (dims.@"1" == 0 and dims.@"2" == 0 and dims.@"0" == 0)
+                return error.InvalidStorageSize;
+
+            if (@max(1, dims.@"2") * @max(1, dims.@"1") * @max(1, dims.@"0") != data.len)
+                return error.InvalidSliceSize;
+
+            return .{
                 .shape = dims,
                 .strides = .{ @max(dims.@"2", 1) * @max(dims.@"1", 1), @max(dims.@"2", 1), 1 },
-                .storage = try Storage(dtype).createOwned(dims, allocator),
+                .data = data,
             };
         }
 
+        /// Creates a tensor and allocate its storage using the specified allocator.
+        /// See `deinit` to deallocate the tensor storage.
+        pub fn alloc(dims: struct { usize, usize, usize }, allocator: Allocator) !@This() {
+            const memory = try allocator.alloc(dtype, @max(1, dims.@"2") * @max(1, dims.@"1") * @max(1, dims.@"0"));
+            errdefer allocator.free(memory);
+
+            return try fromSlice(dims, memory);
+        }
+
         /// Creates a tensor with all its values set to the given value.
-        pub fn withValue(dims: struct { usize, usize, usize }, def: dtype, allocator: Allocator) !@This() {
-            var mat = try empty(dims, allocator);
-            mat.fill(def);
-            return mat;
+        /// See `deinit` to deallocate the tensor storage.
+        pub fn allocWithValue(dims: struct { usize, usize, usize }, def: dtype, allocator: Allocator) !@This() {
+            var tensor = try alloc(dims, allocator);
+            tensor.fill(def);
+            return tensor;
         }
 
         /// Creates a tensor with all its values initialized with a RNG.
-        pub fn random(dims: struct { usize, usize, usize }, rng: Random, allocator: Allocator) !@This() {
-            var mat = try empty(dims, allocator);
+        /// See `deinit` to deallocate the tensor storage.
+        pub fn allocRandom(dims: struct { usize, usize, usize }, rng: Random, allocator: Allocator) !@This() {
+            var mat = try alloc(dims, allocator);
             for (mat.slice()) |*val|
                 val.* = rng.floatNorm(dtype);
             return mat;
@@ -45,7 +63,7 @@ pub fn Tensor(dtype: type) type {
             std.debug.assert(pos.@"1" < @max(self.shape.@"1", 1));
             std.debug.assert(pos.@"2" < @max(self.shape.@"2", 1));
 
-            return self.storage.get(pos.@"0" * self.strides.@"0" + pos.@"1" * self.strides.@"1" + pos.@"2" * self.strides.@"2");
+            return self.data[pos.@"0" * self.strides.@"0" + pos.@"1" * self.strides.@"1" + pos.@"2" * self.strides.@"2"];
         }
 
         /// Sets the value in the tensor at the specified position.
@@ -54,7 +72,7 @@ pub fn Tensor(dtype: type) type {
             std.debug.assert(pos.@"1" < @max(self.shape.@"1", 1));
             std.debug.assert(pos.@"2" < @max(self.shape.@"2", 1));
 
-            self.storage.set(pos.@"0" * self.strides.@"0" + pos.@"1" * self.strides.@"1" + pos.@"2" * self.strides.@"2", value);
+            self.data[pos.@"0" * self.strides.@"0" + pos.@"1" * self.strides.@"1" + pos.@"2" * self.strides.@"2"] = value;
         }
 
         /// Fills the tensor with the specified value.
@@ -74,7 +92,7 @@ pub fn Tensor(dtype: type) type {
             return .{
                 .shape = .{ self.shape.@"0", self.shape.@"2", self.shape.@"1" },
                 .strides = .{ self.strides.@"0", self.strides.@"2", self.strides.@"1" },
-                .storage = self.storage.asView(),
+                .data = self.data,
             };
         }
 
@@ -86,18 +104,18 @@ pub fn Tensor(dtype: type) type {
             return .{
                 .shape = new_dims,
                 .strides = .{ @max(new_dims.@"0", 1) * @max(new_dims.@"1", 1), @max(new_dims.@"2", 1), 1 },
-                .storage = self.storage.asView(),
+                .storage = self.data,
             };
         }
 
         /// Returns a const slice representing the contents of this tensor.
         pub inline fn constSlice(self: *const @This()) []const dtype {
-            return self.storage.constSlice();
+            return self.data;
         }
 
         /// Returns a mutable slice representing the contents of this tensor.
         pub inline fn slice(self: *@This()) []dtype {
-            return self.storage.slice();
+            return self.data;
         }
 
         /// Checks that the elements of this tensor are contiguous in memory.
@@ -107,7 +125,7 @@ pub fn Tensor(dtype: type) type {
 
         /// Frees the values.
         pub fn deinit(self: *@This(), allocator: Allocator) void {
-            self.storage.deinit(allocator);
+            allocator.free(self.data);
         }
 
         // Format
@@ -133,85 +151,11 @@ pub fn Tensor(dtype: type) type {
     };
 }
 
-/// Storage for tensor data.
-fn Storage(dtype: type) type {
-    return union(enum) {
-        const Self = @This();
-
-        /// The memory is owned.
-        Owned: []dtype,
-        /// A view into another tensor storage.
-        View: *Self,
-
-        /// Creates a tensor storage which owns the memory.
-        inline fn createOwned(dims: struct { usize, usize, usize }, allocator: Allocator) !@This() {
-            if (dims.@"1" == 0 and dims.@"2" == 0 and dims.@"0" == 0)
-                return error.InvalidStorageSize;
-
-            return .{
-                .Owned = try allocator.alloc(dtype, @max(1, dims.@"2") * @max(1, dims.@"1") * @max(1, dims.@"0")),
-            };
-        }
-
-        /// Returns a view pointing to this storage.
-        inline fn asView(self: *const @This()) @This() {
-            return switch (self.*) {
-                .Owned => .{
-                    .View = @constCast(self),
-                },
-                .View => |view| .{
-                    .View = view,
-                },
-            };
-        }
-
-        /// Attempts to get the value at specified index in the tensor storage.
-        fn get(self: *const @This(), idx: usize) dtype {
-            return switch (self.*) {
-                .Owned => |own| own[idx],
-                .View => |view| view.get(idx),
-            };
-        }
-
-        /// Attempts to set the value at the specified index in the tensor storage.
-        fn set(self: *@This(), idx: usize, data: dtype) void {
-            return switch (self.*) {
-                .Owned => |own| own[idx] = data,
-                .View => |view| view.set(idx, data),
-            };
-        }
-
-        /// Returns the storage's memory as a const slice.
-        fn constSlice(self: *const @This()) []const dtype {
-            return switch (self.*) {
-                .Owned => |own| own,
-                .View => |view| view.constSlice(),
-            };
-        }
-
-        fn slice(self: *@This()) []dtype {
-            return switch (self.*) {
-                .Owned => |own| own,
-                .View => |view| view.slice(),
-            };
-        }
-
-        /// Deinitializes the storage if it owns memory.
-        /// Use this if you haven't allocated this tensor using an arena allocator and need exact control over when the deallocation happens.
-        inline fn deinit(self: *@This(), allocator: Allocator) void {
-            switch (self.*) {
-                .Owned => |own| allocator.free(own),
-                else => {},
-            }
-        }
-    };
-}
-
 test "tensor indexing + stride test" {
     // create a 3x3 square tensor.
 
     // default stride (3, 1)
-    var mat = try Tensor(f32).withValue(.{ 0, 3, 3 }, 0, std.testing.allocator);
+    var mat = try Tensor(f32).allocWithValue(.{ 0, 3, 3 }, 0, std.testing.allocator);
     defer mat.deinit(std.testing.allocator);
 
     for (0..3) |value|
@@ -241,10 +185,10 @@ test "tensor indexing + stride test" {
 }
 
 test "tensor alloc test" {
-    var mat1 = try Tensor(f32).withValue(.{ 3, 0, 3 }, 0, std.testing.allocator);
+    var mat1 = try Tensor(f32).allocWithValue(.{ 3, 0, 3 }, 0, std.testing.allocator);
     defer mat1.deinit(std.testing.allocator);
 
-    var mat2 = try Tensor(f32).withValue(.{ 3, 3, 3 }, 0, std.testing.allocator);
+    var mat2 = try Tensor(f32).allocWithValue(.{ 3, 3, 3 }, 0, std.testing.allocator);
     defer mat2.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(9, mat1.constSlice().len);

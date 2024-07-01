@@ -19,36 +19,32 @@ pub fn main() !void {
 
     var out = std.io.getStdOut().writer();
 
-    // contains the expected value for backprop
-    var expected_mat = try Mat(f32).empty(dense.outputShape(), alloc);
-    // contains the computed loss gradient
-    var loss_grad = try Mat(f32).empty(dense.outputShape(), alloc);
-
-    // contains the input of the network
-    var inputs = try Mat(f32).empty(dense.inputShape(), alloc);
-    var inputsT = inputs.transpose();
-
-    inputs.setData(@constCast(@ptrCast(&[_][1]f32{
-        [1]f32{0.0},
-        [1]f32{1.0},
-        [1]f32{3.0},
-        [1]f32{9.0},
-    })));
-
+    // contains the expected values for backprop
     // outputs follow f(x)=2x + 1
-    expected_mat.setData(@constCast(@ptrCast(&[_][1]f32{
+    var expected_mat = try Mat(f32).fromSlice(dense.outputShape(), @constCast(@ptrCast(&[_][1]f32{
         [1]f32{1.0},
         [1]f32{3.0},
         [1]f32{7.0},
         [1]f32{19.0},
     })));
+    // contains the computed loss gradient
+    var loss_grad = try Mat(f32).alloc(dense.outputShape(), alloc);
+
+    // contains the input of the network
+    var inputs = try Mat(f32).fromSlice(dense.inputShape(), @constCast(@ptrCast(&[_][1]f32{
+        [1]f32{0.0},
+        [1]f32{1.0},
+        [1]f32{3.0},
+        [1]f32{9.0},
+    })));
+    var inputsT = inputs.transpose();
 
     // contains the gradient wrt to the weights
-    var weights_grad = try Mat(f32).empty(try brainz.ops.opShape(.MatMul, dense.grad.shape, inputsT.shape), alloc);
+    var weights_grad = try Mat(f32).alloc(try brainz.ops.opShape(.MatMul, dense.grad.shape, inputsT.shape), alloc);
 
     // holds the summed batched error gradients for the biases
-    var bias_grad_summed = try Mat(f32).empty(try brainz.ops.opShape(.SumAxis, dense.grad.shape, 0), alloc);
-    var weights_grad_summed = try Mat(f32).empty(try brainz.ops.opShape(.SumAxis, weights_grad.shape, 0), alloc);
+    var bias_grad_summed = try Mat(f32).alloc(try brainz.ops.opShape(.SumAxis, dense.grad.shape, 0), alloc);
+    var weights_grad_summed = try Mat(f32).alloc(try brainz.ops.opShape(.SumAxis, weights_grad.shape, 0), alloc);
 
     // train for 100 epochs.
     for (0..200) |_| {

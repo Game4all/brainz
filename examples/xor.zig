@@ -82,14 +82,14 @@ const XorMLP = struct {
             try brainz.ops.opShape(.Transpose, self.layer_1.outputShape(), null),
         );
 
-        self.weight_grad_1 = try Matrix(f32).empty(shape1, alloc);
-        self.weight_grad_2 = try Matrix(f32).empty(shape2, alloc);
+        self.weight_grad_1 = try Matrix(f32).alloc(shape1, alloc);
+        self.weight_grad_2 = try Matrix(f32).alloc(shape2, alloc);
 
-        self.weight_grad_1_f = try Matrix(f32).empty(try brainz.ops.opShape(.SumAxis, self.weight_grad_1.shape, 0), alloc);
-        self.weight_grad_2_f = try Matrix(f32).empty(try brainz.ops.opShape(.SumAxis, self.weight_grad_2.shape, 0), alloc);
+        self.weight_grad_1_f = try Matrix(f32).alloc(try brainz.ops.opShape(.SumAxis, self.weight_grad_1.shape, 0), alloc);
+        self.weight_grad_2_f = try Matrix(f32).alloc(try brainz.ops.opShape(.SumAxis, self.weight_grad_2.shape, 0), alloc);
 
-        self.bias_grad_1 = try Matrix(f32).empty(try brainz.ops.opShape(.SumAxis, self.outputShape(), 0), alloc);
-        self.bias_grad_2 = try Matrix(f32).empty(try brainz.ops.opShape(.SumAxis, self.outputShape(), 0), alloc);
+        self.bias_grad_1 = try Matrix(f32).alloc(try brainz.ops.opShape(.SumAxis, self.outputShape(), 0), alloc);
+        self.bias_grad_2 = try Matrix(f32).alloc(try brainz.ops.opShape(.SumAxis, self.outputShape(), 0), alloc);
     }
 };
 
@@ -105,18 +105,16 @@ pub fn main() !void {
 
     const BCE = brainz.loss.BinaryCrossEntropy;
 
-    var expected_mat = try Matrix(f32).empty(mlp.outputShape(), alloc);
-    expected_mat.setData(@constCast(@ptrCast(&[_][1]f32{
+    var expected_mat = try Matrix(f32).fromSlice(mlp.outputShape(), @constCast(@ptrCast(&[_][1]f32{
         [1]f32{0.0},
         [1]f32{1.0},
         [1]f32{1.0},
         [1]f32{0.0},
     })));
 
-    var loss_grad = try Matrix(f32).empty(mlp.outputShape(), alloc);
+    var loss_grad = try Matrix(f32).alloc(mlp.outputShape(), alloc);
 
-    var input_mat = try Matrix(f32).empty(mlp.inputShape(), alloc);
-    input_mat.setData(@constCast(@ptrCast(&[_]f32{
+    var input_mat = try Matrix(f32).fromSlice(mlp.inputShape(), @constCast(@ptrCast(&[_]f32{
         0.0, 0.0,
         0.0, 1.0,
         1.0, 0.0,
@@ -127,7 +125,7 @@ pub fn main() !void {
 
     var out = std.io.getStdOut().writer();
 
-    for (0..5000) |_| {
+    for (0..10_000) |_| {
         const result = mlp.forward(&input_mat);
         const loss = BCE.compute(result, &expected_mat);
 

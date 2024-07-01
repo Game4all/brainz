@@ -37,9 +37,9 @@ pub fn main() !void {
     var mlp: ClassificationMLP = undefined;
     try mlp.init(alloc);
 
-    var input_mat = try Tensor(f32).empty(mlp.inputShape(), alloc);
-    var expected_mat = try Tensor(f32).empty(mlp.outputShape(), alloc);
-    var loss_grad = try Tensor(f32).empty(mlp.outputShape(), alloc);
+    var input_mat = try Tensor(f32).alloc(mlp.inputShape(), alloc);
+    var expected_mat = try Tensor(f32).alloc(mlp.outputShape(), alloc);
+    var loss_grad = try Tensor(f32).alloc(mlp.outputShape(), alloc);
 
     const BCE = brainz.loss.BinaryCrossEntropy;
 
@@ -47,7 +47,7 @@ pub fn main() !void {
 
     // train the network for 500 epochs.
     // do minibatch training with a batch_size of 10.
-    const num_epochs = 500;
+    const num_epochs = 1000;
     for (0..num_epochs) |a| {
         var i: usize = 0;
         var loss: f32 = 0.0;
@@ -63,7 +63,7 @@ pub fn main() !void {
             loss = BCE.compute(result, &expected_mat);
 
             mlp.backwards(&loss_grad);
-            mlp.step(&input_mat, 0.65);
+            mlp.step(&input_mat, 0.20);
         }
 
         const epoch_end_time = try std.time.Instant.now();
@@ -78,14 +78,13 @@ pub fn main() !void {
 
     try out.print("========= Evaluating network ==========\n", .{});
 
-    const eval_data: *const [6240]f32 = @ptrCast(&DATASET.EVAL_DATASET[0]);
-    input_mat.setData(@constCast(eval_data));
-    expected_mat.setData(@constCast(&EVAL_LABELS));
+    const eval_inputs = try Tensor(f32).fromSlice(.{ 10, 624, 1 }, @as(*[6240]f32, @constCast(@ptrCast(&DATASET.EVAL_DATASET[0])))[0..]);
+    const eval_labels = try Tensor(f32).fromSlice(.{ 10, 1, 1 }, @constCast(@ptrCast(EVAL_LABELS[0..])));
 
-    const results = mlp.forward(&input_mat);
+    const results = mlp.forward(&eval_inputs);
 
     for (0..10) |i| {
-        try out.print("Out: {} | Expected: {} \n", .{ @round(results.get(.{ 0, i, 0 })), expected_mat.get(.{ 0, i, 0 }) });
+        try out.print("Out: {} | Expected: {} \n", .{ @round(results.get(.{ 0, i, 0 })), eval_labels.get(.{ i, 0, 0 }) });
     }
 }
 
@@ -170,13 +169,13 @@ const ClassificationMLP = struct {
             try brainz.ops.opShape(.Transpose, self.layer_1.outputShape(), null),
         );
 
-        self.weight_grad_1 = try Tensor(f32).empty(wg1_shape, alloc);
-        self.weight_grad_2 = try Tensor(f32).empty(wg2_shape, alloc);
+        self.weight_grad_1 = try Tensor(f32).alloc(wg1_shape, alloc);
+        self.weight_grad_2 = try Tensor(f32).alloc(wg2_shape, alloc);
 
-        self.weight_grad_1_f = try Tensor(f32).empty(try brainz.ops.opShape(.SumAxis, wg1_shape, 0), alloc);
-        self.weight_grad_2_f = try Tensor(f32).empty(try brainz.ops.opShape(.SumAxis, wg2_shape, 0), alloc);
+        self.weight_grad_1_f = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, wg1_shape, 0), alloc);
+        self.weight_grad_2_f = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, wg2_shape, 0), alloc);
 
-        self.bias_grad_1 = try Tensor(f32).empty(try brainz.ops.opShape(.SumAxis, self.layer_1.outputShape(), 0), alloc);
-        self.bias_grad_2 = try Tensor(f32).empty(try brainz.ops.opShape(.SumAxis, self.layer_2.outputShape(), 0), alloc);
+        self.bias_grad_1 = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, self.layer_1.outputShape(), 0), alloc);
+        self.bias_grad_2 = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, self.layer_2.outputShape(), 0), alloc);
     }
 };
