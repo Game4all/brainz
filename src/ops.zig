@@ -14,6 +14,12 @@ pub const Op = enum {
     Sum,
     SumAxis,
     Transpose,
+
+    // activations
+    Sigmoid,
+    SigmoidBackprop,
+    ReLu,
+    ReLuBackprop,
 };
 
 /// Returns the shape of the tensor resulting from the given operation.
@@ -51,7 +57,7 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: 
 
             return final_shape;
         },
-        inline .Exp, .Log, .MulScalar => return shape1, //same shape as the input
+        inline .Exp, .Log, .MulScalar, .Sigmoid, .SigmoidBackprop, .ReLu, .ReLuBackprop => return shape1, //same shape as the input
         inline .Sum => .{ 1, 1, 1 }, // outputs a scalar
         inline .SumAxis => {
             const axis_idx = switch (@typeInfo(@TypeOf(shape2))) {
@@ -91,23 +97,6 @@ pub fn broadcastShape(shape1: struct { usize, usize, usize }, shape2: struct { u
     return final_shape;
 }
 
-/// Performs various shape and stride checks on the operand and result tensors to select the most adapted operation implementation.
-/// - If the mat1 or mat2 or result tensors have different shapes, use the broadcasting impl (slowest)
-/// - If all shapes are equal and tensors are contiguous, use the SIMD impl (fatest)
-/// - else use the scalar fallback version (slower)
-inline fn selectOpBackend(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) enum { Broadcast, SameShapeNonContiguous, SameShapeContiguous } {
-    inline for (0..3) |i| {
-        if (mat1.shape[i] != mat2.shape[i] or mat2.shape[i] != result.shape[i])
-            return .Broadcast;
-    }
-
-    if (mat1.isContiguous() and mat2.isContiguous() and result.isContiguous()) {
-        return .SameShapeContiguous;
-    } else {
-        return .SameShapeNonContiguous;
-    }
-}
-
 /// Performs a matrix multiplication between two tensors.
 /// Supports broadcasting to a common batch dimension.
 /// Requires the two rightmost dimensions to be the number of columns and number of rows.
@@ -135,23 +124,15 @@ pub fn mulScalar(comptime ty: type, mat1: *const Tensor(ty), scalar: ty, result:
     inline for (0..3) |i|
         std.debug.assert(result.shape[i] == mat1.shape[i]);
 
-    const vectorSize = std.simd.suggestVectorLength(f32) orelse 1;
+    return opUnaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, ctx: anytype, a: anytype) @Vector(vectorSize, ty) {
+            return @as(@Vector(vectorSize, ty), @splat(ctx.@"0")) * a;
+        }
 
-    const arg_1 = mat1.constSlice();
-    const res = result.slice();
-
-    const maxVecIndex = (res.len / vectorSize) * vectorSize;
-    const remIndex = res.len % vectorSize;
-
-    var pos: usize = 0;
-    while (pos < maxVecIndex) : (pos += vectorSize) {
-        const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
-        res[pos..][0..vectorSize].* = vec_1 * @as(@Vector(vectorSize, ty), @splat(scalar));
-    }
-
-    // processing the remaining elements which can't be vectorized.
-    for (maxVecIndex..(maxVecIndex + remIndex)) |i|
-        res[i] = arg_1[i] * scalar;
+        pub inline fn scalar_func(ctx: anytype, a: anytype) ty {
+            return ctx.@"0" * a;
+        }
+    }, .{scalar}, mat1, result);
 }
 
 /// Performs substraction of two tensors.
@@ -161,53 +142,15 @@ pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     inline for (0..3) |i|
         std.debug.assert(result.shape[i] == outShape[i]);
 
-    switch (selectOpBackend(ty, mat1, mat2, result)) {
-        .Broadcast => {
-            for (0..@max(result.shape[0], 1)) |i| {
-                for (0..@max(result.shape[1], 1)) |j| {
-                    for (0..@max(result.shape[2], 1)) |k| {
-                        const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
-                        const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
-                        result.set(.{ i, j, k }, a - b);
-                    }
-                }
-            }
-        },
-        .SameShapeContiguous => {
-            const vectorSize = std.simd.suggestVectorLength(f32) orelse 1;
+    return opBinaryImpl(f32, struct {
+        pub inline fn simd_func(a: anytype, b: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
+            return a - b;
+        }
 
-            const arg_1 = mat1.constSlice();
-            const arg_2 = mat2.constSlice();
-            const res = result.slice();
-
-            const maxVecIndex = (res.len / vectorSize) * vectorSize;
-            const remIndex = res.len % vectorSize;
-
-            var pos: usize = 0;
-            while (pos < maxVecIndex) : (pos += vectorSize) {
-                const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
-                const vec_2: @Vector(vectorSize, ty) = arg_2[pos..][0..vectorSize].*;
-                const res_vec: @Vector(vectorSize, ty) = vec_1 - vec_2;
-
-                res[pos..][0..vectorSize].* = res_vec;
-            }
-
-            // processing the remaining elements which can't be vectorized.
-            for (maxVecIndex..(maxVecIndex + remIndex)) |i|
-                res[i] = arg_1[i] - arg_2[i];
-        },
-        .SameShapeNonContiguous => {
-            for (0..@max(result.shape[0], 1)) |i| {
-                for (0..@max(result.shape[1], 1)) |j| {
-                    for (0..@max(result.shape[2], 1)) |k| {
-                        const a = mat1.get(.{ i, j, k });
-                        const b = mat2.get(.{ i, j, k });
-                        result.set(.{ i, j, k }, a - b);
-                    }
-                }
-            }
-        },
-    }
+        pub inline fn scalar_func(a: anytype, b: anytype) ty {
+            return a - b;
+        }
+    }, mat1, mat2, result);
 }
 
 /// Performs element-wise multiplication of two tensors (aka the hadamard product).
@@ -217,53 +160,15 @@ pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     inline for (0..3) |i|
         std.debug.assert(result.shape[i] == outShape[i]);
 
-    switch (selectOpBackend(ty, mat1, mat2, result)) {
-        .Broadcast => {
-            for (0..@max(result.shape[0], 1)) |i| {
-                for (0..@max(result.shape[1], 1)) |j| {
-                    for (0..@max(result.shape[2], 1)) |k| {
-                        const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
-                        const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
-                        result.set(.{ i, j, k }, a * b);
-                    }
-                }
-            }
-        },
-        .SameShapeContiguous => {
-            const vectorSize = std.simd.suggestVectorLength(f32) orelse 1;
+    return opBinaryImpl(f32, struct {
+        pub inline fn simd_func(a: anytype, b: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
+            return a * b;
+        }
 
-            const arg_1 = mat1.constSlice();
-            const arg_2 = mat2.constSlice();
-            const res = result.slice();
-
-            const maxVecIndex = (res.len / vectorSize) * vectorSize;
-            const remIndex = res.len % vectorSize;
-
-            var pos: usize = 0;
-            while (pos < maxVecIndex) : (pos += vectorSize) {
-                const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
-                const vec_2: @Vector(vectorSize, ty) = arg_2[pos..][0..vectorSize].*;
-                const res_vec: @Vector(vectorSize, ty) = vec_1 * vec_2;
-
-                res[pos..][0..vectorSize].* = res_vec;
-            }
-
-            // processing the remaining elements which can't be vectorized.
-            for (maxVecIndex..(maxVecIndex + remIndex)) |i|
-                res[i] = arg_1[i] * arg_2[i];
-        },
-        .SameShapeNonContiguous => {
-            for (0..@max(result.shape[0], 1)) |i| {
-                for (0..@max(result.shape[1], 1)) |j| {
-                    for (0..@max(result.shape[2], 1)) |k| {
-                        const a = mat1.get(.{ i, j, k });
-                        const b = mat2.get(.{ i, j, k });
-                        result.set(.{ i, j, k }, a * b);
-                    }
-                }
-            }
-        },
-    }
+        pub inline fn scalar_func(a: anytype, b: anytype) ty {
+            return a * b;
+        }
+    }, mat1, mat2, result);
 }
 
 /// Performs the addition of two tensors
@@ -273,53 +178,15 @@ pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     inline for (0..3) |i|
         std.debug.assert(result.shape[i] == outShape[i]);
 
-    switch (selectOpBackend(ty, mat1, mat2, result)) {
-        .Broadcast => {
-            for (0..@max(result.shape[0], 1)) |i| {
-                for (0..@max(result.shape[1], 1)) |j| {
-                    for (0..@max(result.shape[2], 1)) |k| {
-                        const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
-                        const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
-                        result.set(.{ i, j, k }, a + b);
-                    }
-                }
-            }
-        },
-        .SameShapeContiguous => {
-            const vectorSize = std.simd.suggestVectorLength(f32) orelse 1;
+    return opBinaryImpl(f32, struct {
+        pub inline fn simd_func(a: anytype, b: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
+            return a + b;
+        }
 
-            const arg_1 = mat1.constSlice();
-            const arg_2 = mat2.constSlice();
-            const res = result.slice();
-
-            const maxVecIndex = (res.len / vectorSize) * vectorSize;
-            const remIndex = res.len % vectorSize;
-
-            var pos: usize = 0;
-            while (pos < maxVecIndex) : (pos += vectorSize) {
-                const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
-                const vec_2: @Vector(vectorSize, ty) = arg_2[pos..][0..vectorSize].*;
-                const res_vec: @Vector(vectorSize, ty) = vec_1 + vec_2;
-
-                res[pos..][0..vectorSize].* = res_vec;
-            }
-
-            // processing the remaining elements which can't be vectorized.
-            for (maxVecIndex..(maxVecIndex + remIndex)) |i|
-                res[i] = arg_1[i] + arg_2[i];
-        },
-        .SameShapeNonContiguous => {
-            for (0..@max(result.shape[0], 1)) |i| {
-                for (0..@max(result.shape[1], 1)) |j| {
-                    for (0..@max(result.shape[2], 1)) |k| {
-                        const a = mat1.get(.{ i, j, k });
-                        const b = mat2.get(.{ i, j, k });
-                        result.set(.{ i, j, k }, a + b);
-                    }
-                }
-            }
-        },
-    }
+        pub inline fn scalar_func(a: anytype, b: anytype) ty {
+            return a + b;
+        }
+    }, mat1, mat2, result);
 }
 
 /// Performs exponentiation on the specified tensor.
@@ -327,8 +194,15 @@ pub fn exp(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void
     inline for (0..3) |i|
         std.debug.assert(result.shape[i] == mat1.shape[i]);
 
-    for (mat1.constSlice(), result.slice()) |v, *r|
-        r.* = std.math.exp(v);
+    return opUnaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
+            return @exp(a);
+        }
+
+        pub inline fn scalar_func(_: anytype, a: anytype) ty {
+            return @exp(a);
+        }
+    }, .{}, mat1, result);
 }
 
 /// Performs log()
@@ -336,8 +210,15 @@ pub fn log(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void
     inline for (0..3) |i|
         std.debug.assert(result.shape[i] == mat1.shape[i]);
 
-    for (mat1.constSlice(), result.constSlice()) |v, *r|
-        r.* = @log(v);
+    return opUnaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
+            return @log(a);
+        }
+
+        pub inline fn scalar_func(_: anytype, a: anytype) ty {
+            return @log(a);
+        }
+    }, .{}, mat1, result);
 }
 
 /// Sums the values of the tensor.
@@ -385,6 +266,152 @@ pub fn reduce(comptime ty: type, comptime op: ReduceOp, mat1: *const Tensor(ty),
 
             result.set(a, s);
         }
+    }
+}
+
+// ========== Activation functions as operations ======================
+
+/// Sigmoid activation.
+///
+pub fn sigmoid(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+    return opUnaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
+            return @as(@Vector(vectorSize, ty), @splat(1)) / (@as(@Vector(vectorSize, ty), @splat(1)) + std.math.exp(-a));
+        }
+
+        pub inline fn scalar_func(_: anytype, a: anytype) ty {
+            return 1 / (1 + std.math.exp(-a));
+        }
+    }, .{}, mat1, result);
+}
+
+/// Sigmoid activation backpropagation.
+pub fn sigmoidBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+    return opUnaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
+            const s = @as(@Vector(vectorSize, ty), @splat(1)) / (@as(@Vector(vectorSize, ty), @splat(1)) + std.math.exp(-a));
+            return s - (s * s);
+        }
+
+        pub inline fn scalar_func(_: anytype, a: anytype) ty {
+            const s = 1 / (1 + std.math.exp(-a));
+            return s - (s * s);
+        }
+    }, .{}, mat1, result);
+}
+
+/// ReLu activation.
+pub fn relu(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+    return opUnaryImpl(ty, struct {
+        pub inline fn simd_func(a: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
+            return @max(a, @as(@Vector(std.simd.suggestVectorLength(ty) orelse unreachable, ty), @splat(0)));
+        }
+
+        pub inline fn scalar_func(a: anytype) ty {
+            return @max(a, 0);
+        }
+    }, mat1, result);
+}
+
+/// ReLu activation backpropagation.
+pub fn reluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+    return opUnaryImpl(ty, struct {
+        pub inline fn simd_func(a: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
+            return @max(std.math.sign(a), @as(@Vector(std.simd.suggestVectorLength(ty) orelse unreachable, ty), @splat(0)));
+        }
+
+        pub inline fn scalar_func(a: anytype) ty {
+            return @max(std.math.sign(a), 0);
+        }
+    }, mat1, result);
+}
+
+// ================== Unary op implementation ================================
+
+pub fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+    const vectorSize = std.simd.suggestVectorLength(ty) orelse 1;
+
+    const arg_1 = mat1.constSlice();
+    const res = result.slice();
+
+    var pos: usize = 0;
+
+    if (vectorSize != 1) {
+        const maxVecIndex = (res.len / vectorSize) * vectorSize;
+
+        while (pos < maxVecIndex) : (pos += vectorSize) {
+            const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
+            const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, ctx, vec_1);
+            res[pos..][0..vectorSize].* = res_vec;
+        }
+
+        pos = maxVecIndex;
+    }
+
+    // processing the remaining elements which can't be vectorized.
+    for (pos..res.len) |i|
+        res[i] = op_funcs.scalar_func(ctx, arg_1[i]);
+}
+
+/// Performs various shape and stride checks on the operand and result tensors to select the most adapted operation implementation.
+/// - If the mat1 or mat2 or result tensors have different shapes, or aren't contiguous in memory, use the broadcasting impl (slow)
+/// - If all shapes are equal and tensors are contiguous, use the SIMD impl (faster)
+fn canVectorize(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *const Tensor(ty)) bool {
+    inline for (0..3) |i| {
+        if (mat1.shape[i] != mat2.shape[i] or mat2.shape[i] != result.shape[i])
+            return false;
+    }
+
+    return mat1.isContiguous() and mat2.isContiguous() and result.isContiguous();
+}
+
+/// Fast-path implementation for tensor binary ops
+fn opBinaryImplSimd(comptime ty: type, comptime simd_func: fn (anytype, anytype) callconv(.Inline) @Vector(std.simd.suggestVectorLength(f32) orelse 1, ty), comptime fallback_func: fn (anytype, anytype) callconv(.Inline) ty, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+    const vectorSize = std.simd.suggestVectorLength(ty) orelse 1;
+
+    const arg_1 = mat1.constSlice();
+    const arg_2 = mat2.constSlice();
+    const res = result.slice();
+
+    var pos: usize = 0;
+
+    if (vectorSize != 1) {
+        const maxVecIndex = (res.len / vectorSize) * vectorSize;
+
+        while (pos < maxVecIndex) : (pos += vectorSize) {
+            const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
+            const vec_2: @Vector(vectorSize, ty) = arg_2[pos..][0..vectorSize].*;
+            const res_vec: @Vector(vectorSize, ty) = simd_func(vec_1, vec_2);
+
+            res[pos..][0..vectorSize].* = res_vec;
+        }
+
+        pos = maxVecIndex;
+    }
+
+    // processing the remaining elements which can't be vectorized.
+    for (pos..res.len) |i|
+        res[i] = fallback_func(arg_1[i], arg_2[i]);
+}
+
+/// Fallback path implementation for non contiguous / broadcasting tensor binary op
+fn opBinaryImplBroadcast(comptime ty: type, comptime fallback_func: fn (anytype, anytype) callconv(.Inline) ty, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+    for (0..@max(result.shape[0], 1)) |i| {
+        for (0..@max(result.shape[1], 1)) |j| {
+            for (0..@max(result.shape[2], 1)) |k| {
+                const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
+                const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
+                result.set(.{ i, j, k }, fallback_func(a, b));
+            }
+        }
+    }
+}
+
+fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+    if (canVectorize(ty, mat1, mat2, result)) {
+        opBinaryImplSimd(ty, op_funcs.simd_func, op_funcs.scalar_func, mat1, mat2, result);
+    } else {
+        opBinaryImplBroadcast(f32, op_funcs.scalar_func, mat1, mat2, result);
     }
 }
 

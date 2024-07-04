@@ -36,14 +36,12 @@ pub const ReLu: Activation = .{
 };
 
 fn relu_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
-    for (in.constSlice(), out.slice()) |v, *r|
-        r.* = @max(0, v);
+    ops.relu(f32, in, out);
     return out;
 }
 
 fn relu_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
-    for (in.constSlice(), out.slice()) |i, *o|
-        o.* = @max(0, std.math.sign(i));
+    ops.reluBackprop(f32, in, out);
     return out;
 }
 
@@ -55,16 +53,12 @@ pub const Sigmoid: Activation = .{
 };
 
 fn sigmoid_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
-    for (in.constSlice(), out.slice()) |v, *r|
-        r.* = 1.0 / (1.0 + std.math.exp(-v));
+    ops.sigmoid(f32, in, out);
     return out;
 }
 
 fn sigmoid_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
-    for (in.constSlice(), out.slice()) |i, *o| {
-        const A = (1.0 / (1.0 + std.math.exp(-i)));
-        o.* = A * (1.0 - A);
-    }
+    ops.sigmoidBackprop(f32, in, out);
     return out;
 }
 
