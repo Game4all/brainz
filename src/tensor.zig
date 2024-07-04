@@ -104,7 +104,7 @@ pub fn Tensor(dtype: type) type {
             return .{
                 .shape = new_dims,
                 .strides = .{ @max(new_dims.@"0", 1) * @max(new_dims.@"1", 1), @max(new_dims.@"2", 1), 1 },
-                .storage = self.data,
+                .data = self.data,
             };
         }
 
