@@ -18,7 +18,7 @@ pub fn Tensor(dtype: type) type {
         /// Creates a tensor of specified dimensions from the specified slice.
         /// NOTE: The created tensor **doesn't own** the slice and care must be taken by the programmer to deallocate it.
         pub fn fromSlice(dims: struct { usize, usize, usize }, data: []dtype) !@This() {
-            if (dims.@"1" == 0 and dims.@"2" == 0 and dims.@"0" == 0)
+            if (std.meta.eql(dims, .{ 0, 0, 0 }))
                 return error.InvalidStorageSize;
 
             if (@max(1, dims.@"2") * @max(1, dims.@"1") * @max(1, dims.@"0") != data.len)

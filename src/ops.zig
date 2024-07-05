@@ -121,8 +121,7 @@ pub fn matMul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty
 
 /// Performs a scalar to tensor multiplication.
 pub fn mulScalar(comptime ty: type, mat1: *const Tensor(ty), scalar: ty, result: *Tensor(ty)) void {
-    inline for (0..3) |i|
-        std.debug.assert(result.shape[i] == mat1.shape[i]);
+    std.debug.assert(std.meta.eql(mat1.shape, result.shape));
 
     return opUnaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, ctx: anytype, a: anytype) @Vector(vectorSize, ty) {
@@ -139,8 +138,7 @@ pub fn mulScalar(comptime ty: type, mat1: *const Tensor(ty), scalar: ty, result:
 /// Supports broadcasting to a common shape.
 pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
-    inline for (0..3) |i|
-        std.debug.assert(result.shape[i] == outShape[i]);
+    std.debug.assert(std.meta.eql(outShape, result.shape));
 
     return opBinaryImpl(f32, struct {
         pub inline fn simd_func(a: anytype, b: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
@@ -157,8 +155,7 @@ pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
 /// Supports broadcasting to a common shape.
 pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
-    inline for (0..3) |i|
-        std.debug.assert(result.shape[i] == outShape[i]);
+    std.debug.assert(std.meta.eql(outShape, result.shape));
 
     return opBinaryImpl(f32, struct {
         pub inline fn simd_func(a: anytype, b: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
@@ -175,8 +172,7 @@ pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
 /// Supports broadcasting to a common shape.
 pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
-    inline for (0..3) |i|
-        std.debug.assert(result.shape[i] == outShape[i]);
+    std.debug.assert(std.meta.eql(outShape, result.shape));
 
     return opBinaryImpl(f32, struct {
         pub inline fn simd_func(a: anytype, b: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
@@ -191,8 +187,7 @@ pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
 
 /// Performs exponentiation on the specified tensor.
 pub fn exp(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
-    inline for (0..3) |i|
-        std.debug.assert(result.shape[i] == mat1.shape[i]);
+    std.debug.assert(std.meta.eql(mat1.shape, result.shape));
 
     return opUnaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
@@ -207,8 +202,7 @@ pub fn exp(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void
 
 /// Performs log()
 pub fn log(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
-    inline for (0..3) |i|
-        std.debug.assert(result.shape[i] == mat1.shape[i]);
+    std.debug.assert(std.meta.eql(mat1.shape, result.shape));
 
     return opUnaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
@@ -272,7 +266,6 @@ pub fn reduce(comptime ty: type, comptime op: ReduceOp, mat1: *const Tensor(ty),
 // ========== Activation functions as operations ======================
 
 /// Sigmoid activation.
-///
 pub fn sigmoid(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
@@ -303,27 +296,27 @@ pub fn sigmoidBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tens
 /// ReLu activation.
 pub fn relu(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
-        pub inline fn simd_func(a: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
-            return @max(a, @as(@Vector(std.simd.suggestVectorLength(ty) orelse unreachable, ty), @splat(0)));
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
+            return @max(a, @as(@Vector(vectorSize, ty), @splat(0)));
         }
 
-        pub inline fn scalar_func(a: anytype) ty {
+        pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return @max(a, 0);
         }
-    }, mat1, result);
+    }, .{}, mat1, result);
 }
 
 /// ReLu activation backpropagation.
 pub fn reluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
-        pub inline fn simd_func(a: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
-            return @max(std.math.sign(a), @as(@Vector(std.simd.suggestVectorLength(ty) orelse unreachable, ty), @splat(0)));
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
+            return @max(std.math.sign(a), @as(@Vector(vectorSize, ty), @splat(0)));
         }
 
-        pub inline fn scalar_func(a: anytype) ty {
+        pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return @max(std.math.sign(a), 0);
         }
-    }, mat1, result);
+    }, .{}, mat1, result);
 }
 
 // ================== Unary op implementation ================================
@@ -336,7 +329,7 @@ pub fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, 
 
     var pos: usize = 0;
 
-    if (vectorSize != 1) {
+    if (vectorSize != 1 and @hasDecl(op_funcs, "simd_func")) {
         const maxVecIndex = (res.len / vectorSize) * vectorSize;
 
         while (pos < maxVecIndex) : (pos += vectorSize) {
@@ -351,18 +344,6 @@ pub fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, 
     // processing the remaining elements which can't be vectorized.
     for (pos..res.len) |i|
         res[i] = op_funcs.scalar_func(ctx, arg_1[i]);
-}
-
-/// Performs various shape and stride checks on the operand and result tensors to select the most adapted operation implementation.
-/// - If the mat1 or mat2 or result tensors have different shapes, or aren't contiguous in memory, use the broadcasting impl (slow)
-/// - If all shapes are equal and tensors are contiguous, use the SIMD impl (faster)
-fn canVectorize(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *const Tensor(ty)) bool {
-    inline for (0..3) |i| {
-        if (mat1.shape[i] != mat2.shape[i] or mat2.shape[i] != result.shape[i])
-            return false;
-    }
-
-    return mat1.isContiguous() and mat2.isContiguous() and result.isContiguous();
 }
 
 /// Fast-path implementation for tensor binary ops
@@ -407,8 +388,11 @@ fn opBinaryImplBroadcast(comptime ty: type, comptime fallback_func: fn (anytype,
     }
 }
 
+/// Performs various shape and stride checks on the operand and result tensors to select the most adapted operation implementation.
+/// - If the mat1 or mat2 or result tensors have different shapes, or aren't contiguous in memory, use the broadcasting impl (slow)
+/// - If all shapes are equal and tensors are contiguous, use the SIMD impl (faster)
 fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
-    if (canVectorize(ty, mat1, mat2, result)) {
+    if (std.meta.eql(mat1.shape, mat2.shape) and std.meta.eql(mat2.shape, result.shape) and mat1.isContiguous() and mat2.isContiguous() and result.isContiguous()) {
         opBinaryImplSimd(ty, op_funcs.simd_func, op_funcs.scalar_func, mat1, mat2, result);
     } else {
         opBinaryImplBroadcast(f32, op_funcs.scalar_func, mat1, mat2, result);
