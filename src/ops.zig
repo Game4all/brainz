@@ -268,27 +268,27 @@ pub fn reduce(comptime ty: type, comptime op: ReduceOp, mat1: *const Tensor(ty),
 pub fn cast(comptime in_ty: type, comptime out_ty: type, in: *const Tensor(in_ty), out: *Tensor(out_ty)) void {
     std.debug.assert(std.meta.eql(in.shape, out.shape));
     for (in.constSlice(), out.slice()) |i, *v| {
-        v.* = switch (@typeInfo(in_ty)) {
-            .Int => return switch (@typeInfo(out_ty)) {
-                .Int => @intCast(i),
-                .Float => @floatFromInt(i),
-                .Bool => i != 0,
-                _ => @compileError("Unsupported target type for tensor typecasting"),
+        switch (@typeInfo(in_ty)) {
+            .Int => switch (@typeInfo(out_ty)) {
+                .Int => v.* = @intCast(i),
+                .Float => v.* = @floatFromInt(i),
+                .Bool => v.* = i != 0,
+                else => @compileError("Unsupported target type for tensor typecasting"),
             },
-            .Float => return switch (@typeInfo(out_ty)) {
-                .Int => @intFromFloat(i),
-                .Float => @floatCast(i),
-                .Bool => i != 0,
-                _ => @compileError("Unsupported target type for tensor typecasting"),
+            .Float => switch (@typeInfo(out_ty)) {
+                .Int => v.* = @intFromFloat(i),
+                .Float => v.* = @floatCast(i),
+                .Bool => v.* = i != 0,
+                else => @compileError("Unsupported target type for tensor typecasting"),
             },
-            .Bool => return switch (@typeInfo(out_ty)) {
-                .Int => @intFromBool(i),
-                .Float => @floatFromInt(@intFromBool(i)),
-                .Bool => i,
-                _ => @compileError("Unsupported target type for tensor typecasting"),
+            .Bool => switch (@typeInfo(out_ty)) {
+                .Int => v.* = @intFromBool(i),
+                .Float => v.* = @floatFromInt(@intFromBool(i)),
+                .Bool => v.* = i,
+                else => @compileError("Unsupported target type for tensor typecasting"),
             },
-            _ => @compileError("Unsupported source type for tensor typecasting"),
-        };
+            else => @compileError("Unsupported source type for tensor typecasting"),
+        }
     }
 }
 
@@ -527,4 +527,19 @@ test "tensor axis sum" {
 
     reduce(f32, .Sum, &mat1, 0, &result); // summing along the batch size
     try std.testing.expectEqualSlices(f32, &[_]f32{ 27.0, 30.0, 33.0, 36.0, 39.0, 42.0, 45.0, 48.0, 51.0 }, result.constSlice());
+}
+
+test "tensor casting" {
+    var mat1 = try Tensor(f32).alloc(.{ 0, 0, 16 }, std.testing.allocator);
+    defer mat1.deinit(std.testing.allocator);
+    var mat2 = try Tensor(u8).alloc(.{ 0, 0, 16 }, std.testing.allocator);
+    defer mat2.deinit(std.testing.allocator);
+
+    for (mat1.slice(), 0..) |*value, i|
+        value.* = @floatFromInt(i);
+
+    cast(f32, u8, &mat1, &mat2);
+
+    for (mat2.constSlice(), 0..) |value, i|
+        try std.testing.expectEqual(@as(u8, @intCast(i)), value);
 }
