@@ -120,6 +120,22 @@ test "softmax activation" {
     try std.testing.expectEqual(1.0, ops.sum(f32, &softmax_mat));
 }
 
+test "relu activation" {
+    var test_mat = try Tensor(f32).fromSlice(.{ 0, 0, 3 }, @constCast(&[_]f32{ 0.0, -1.0, 4.0 }));
+
+    var results = try Tensor(f32).alloc(test_mat.shape, std.testing.allocator);
+    defer results.deinit(std.testing.allocator);
+
+    var backprop_results = try Tensor(f32).alloc(test_mat.shape, std.testing.allocator);
+    defer backprop_results.deinit(std.testing.allocator);
+
+    ops.relu(f32, &test_mat, &results);
+    ops.reluBackprop(f32, &test_mat, &backprop_results);
+
+    try std.testing.expectEqualSlices(f32, &[_]f32{ 0.0, 0.0, 4.0 }, results.constSlice());
+    try std.testing.expectEqualSlices(f32, &[_]f32{ 0.0, 0.0, 1.0 }, backprop_results.constSlice());
+}
+
 test "sigmoid activation" {
     var test_mat = try Tensor(f32).allocWithValue(.{ 0, 3, 1 }, 1.0, std.testing.allocator);
     defer test_mat.deinit(std.testing.allocator);
