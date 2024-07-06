@@ -121,7 +121,7 @@ test "softmax activation" {
 }
 
 test "relu activation" {
-    var test_mat = try Tensor(f32).fromSlice(.{ 0, 0, 3 }, @constCast(&[_]f32{ 0.0, -1.0, 4.0 }));
+    var test_mat = try Tensor(f32).fromSlice(.{ 0, 0, 9 }, @constCast(&[_]f32{ 0.0, -1.0, 4.0, 0.0, -1.0, 4.0, 0.0, -1.0, 4.0 }));
 
     var results = try Tensor(f32).alloc(test_mat.shape, std.testing.allocator);
     defer results.deinit(std.testing.allocator);
@@ -132,8 +132,8 @@ test "relu activation" {
     ops.relu(f32, &test_mat, &results);
     ops.reluBackprop(f32, &test_mat, &backprop_results);
 
-    try std.testing.expectEqualSlices(f32, &[_]f32{ 0.0, 0.0, 4.0 }, results.constSlice());
-    try std.testing.expectEqualSlices(f32, &[_]f32{ 0.0, 0.0, 1.0 }, backprop_results.constSlice());
+    try std.testing.expectEqualSlices(f32, &[_]f32{ 0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0 }, results.constSlice());
+    try std.testing.expectEqualSlices(f32, &[_]f32{ 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 }, backprop_results.constSlice());
 }
 
 test "sigmoid activation" {
