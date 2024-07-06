@@ -98,7 +98,7 @@ pub fn broadcastShape(shape1: struct { usize, usize, usize }, shape2: struct { u
     return final_shape;
 }
 
-/// Performs a matrix multiplication between two tensors.
+/// Performs a Tensor multiplication between two tensors.
 /// Supports broadcasting to a common batch dimension.
 /// Requires the two rightmost dimensions to be the number of columns and number of rows.
 pub fn matMul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
@@ -434,7 +434,7 @@ test "shape broadcasting" {
     try std.testing.expectEqual(.{ 1, 2, 3 }, try broadcastShape(.{ 0, 1, 0 }, .{ 1, 2, 3 }));
     try std.testing.expectError(error.IncompatibleShapes, broadcastShape(.{ 4, 2, 9 }, .{ 1, 2, 3 }));
 
-    // testing matrix multiplication batch dim broadcasting
+    // testing Tensor multiplication batch dim broadcasting
     try std.testing.expectEqual(.{ 0, 2, 1 }, try opShape(.MatMul, .{ 0, 2, 3 }, .{ 0, 3, 1 }));
     try std.testing.expectEqual(.{ 6, 2, 1 }, try opShape(.MatMul, .{ 6, 2, 3 }, .{ 6, 3, 1 }));
 }

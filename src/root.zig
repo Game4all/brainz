@@ -7,7 +7,7 @@ pub const tensor = @import("tensor.zig");
 pub const ops = @import("ops.zig");
 
 pub const Dense = @import("dense.zig").Dense;
-pub const Matrix = tensor.Tensor;
+pub const Tensor = tensor.Tensor;
 
 comptime {
     std.testing.refAllDeclsRecursive(tensor);

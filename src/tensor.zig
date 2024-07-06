@@ -8,7 +8,7 @@ const Allocator = std.mem.Allocator;
 /// NOTE: Tensors don't automatically manage ownership of the memory they point to and as such the memory management is up to the programmer (use an ArenaAllocator).
 pub fn Tensor(dtype: type) type {
     return struct {
-        /// The dimensions of tensor matrix (N batches x M rows x N columns)
+        /// The dimensions of the tensor (N batches x M rows x N columns)
         shape: struct { usize, usize, usize },
         // The tensor strides.
         strides: struct { usize, usize, usize },

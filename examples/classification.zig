@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const brainz = @import("brainz");
-const Tensor = brainz.Matrix;
+const Tensor = brainz.Tensor;
 const Allocator = std.mem.Allocator;
 
 ///

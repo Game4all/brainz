@@ -1,7 +1,7 @@
 const std = @import("std");
 const brainz = @import("brainz");
 
-const Mat = brainz.Matrix;
+const Mat = brainz.Tensor;
 
 pub fn main() !void {
     var heap = std.heap.HeapAllocator.init();

@@ -1,28 +1,28 @@
 const std = @import("std");
 const brainz = @import("brainz");
-const Matrix = brainz.Matrix;
+const Tensor = brainz.Tensor;
 const Allocator = std.mem.Allocator;
 
 const XorMLP = struct {
     layer_1: brainz.Dense(2, 2, 4, brainz.activation.Sigmoid) = undefined,
     layer_2: brainz.Dense(2, 1, 4, brainz.activation.Sigmoid) = undefined,
 
-    weight_grad_1: Matrix(f32),
-    weight_grad_2: Matrix(f32),
+    weight_grad_1: Tensor(f32),
+    weight_grad_2: Tensor(f32),
 
     // flattened and averaged weight gradients
-    weight_grad_1_f: Matrix(f32),
-    weight_grad_2_f: Matrix(f32),
+    weight_grad_1_f: Tensor(f32),
+    weight_grad_2_f: Tensor(f32),
 
-    bias_grad_1: Matrix(f32),
-    bias_grad_2: Matrix(f32),
+    bias_grad_1: Tensor(f32),
+    bias_grad_2: Tensor(f32),
 
-    pub fn forward(self: *@This(), input: *const Matrix(f32)) *Matrix(f32) {
+    pub fn forward(self: *@This(), input: *const Tensor(f32)) *Tensor(f32) {
         const a = self.layer_1.forward(input);
         return self.layer_2.forward(a);
     }
 
-    pub fn backwards(self: *@This(), loss_grad: *const Matrix(f32)) void {
+    pub fn backwards(self: *@This(), loss_grad: *const Tensor(f32)) void {
         const A = self.layer_2.backwards(loss_grad);
         _ = self.layer_1.backwards(A);
     }
@@ -36,7 +36,7 @@ const XorMLP = struct {
     }
 
     /// Update the weights by the specified learning rate
-    pub fn step(self: *@This(), ins: *const Matrix(f32), lr: f32) void {
+    pub fn step(self: *@This(), ins: *const Tensor(f32), lr: f32) void {
         const layer2_inputs = self.layer_1.activation_outputs.transpose();
         const layer1_inputs = ins.transpose();
 
@@ -82,14 +82,14 @@ const XorMLP = struct {
             try brainz.ops.opShape(.Transpose, self.layer_1.outputShape(), null),
         );
 
-        self.weight_grad_1 = try Matrix(f32).alloc(shape1, alloc);
-        self.weight_grad_2 = try Matrix(f32).alloc(shape2, alloc);
+        self.weight_grad_1 = try Tensor(f32).alloc(shape1, alloc);
+        self.weight_grad_2 = try Tensor(f32).alloc(shape2, alloc);
 
-        self.weight_grad_1_f = try Matrix(f32).alloc(try brainz.ops.opShape(.SumAxis, self.weight_grad_1.shape, 0), alloc);
-        self.weight_grad_2_f = try Matrix(f32).alloc(try brainz.ops.opShape(.SumAxis, self.weight_grad_2.shape, 0), alloc);
+        self.weight_grad_1_f = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, self.weight_grad_1.shape, 0), alloc);
+        self.weight_grad_2_f = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, self.weight_grad_2.shape, 0), alloc);
 
-        self.bias_grad_1 = try Matrix(f32).alloc(try brainz.ops.opShape(.SumAxis, self.outputShape(), 0), alloc);
-        self.bias_grad_2 = try Matrix(f32).alloc(try brainz.ops.opShape(.SumAxis, self.outputShape(), 0), alloc);
+        self.bias_grad_1 = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, self.outputShape(), 0), alloc);
+        self.bias_grad_2 = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, self.outputShape(), 0), alloc);
     }
 };
 
@@ -105,16 +105,16 @@ pub fn main() !void {
 
     const BCE = brainz.loss.BinaryCrossEntropy;
 
-    var expected_mat = try Matrix(f32).fromSlice(mlp.outputShape(), @constCast(@ptrCast(&[_][1]f32{
+    var expected_mat = try Tensor(f32).fromSlice(mlp.outputShape(), @constCast(@ptrCast(&[_][1]f32{
         [1]f32{0.0},
         [1]f32{1.0},
         [1]f32{1.0},
         [1]f32{0.0},
     })));
 
-    var loss_grad = try Matrix(f32).alloc(mlp.outputShape(), alloc);
+    var loss_grad = try Tensor(f32).alloc(mlp.outputShape(), alloc);
 
-    var input_mat = try Matrix(f32).fromSlice(mlp.inputShape(), @constCast(@ptrCast(&[_]f32{
+    var input_mat = try Tensor(f32).fromSlice(mlp.inputShape(), @constCast(@ptrCast(&[_]f32{
         0.0, 0.0,
         0.0, 1.0,
         1.0, 0.0,
