@@ -14,6 +14,7 @@ pub const Op = enum {
     Sum,
     SumAxis,
     Transpose,
+    Cast,
 
     // activations
     Sigmoid,
@@ -57,7 +58,7 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: 
 
             return final_shape;
         },
-        inline .Exp, .Log, .MulScalar, .Sigmoid, .SigmoidBackprop, .ReLu, .ReLuBackprop => return shape1, //same shape as the input
+        inline .Cast, .Exp, .Log, .MulScalar, .Sigmoid, .SigmoidBackprop, .ReLu, .ReLuBackprop => return shape1, //same shape as the input
         inline .Sum => .{ 1, 1, 1 }, // outputs a scalar
         inline .SumAxis => {
             const axis_idx = switch (@typeInfo(@TypeOf(shape2))) {
@@ -260,6 +261,34 @@ pub fn reduce(comptime ty: type, comptime op: ReduceOp, mat1: *const Tensor(ty),
 
             result.set(a, s);
         }
+    }
+}
+
+/// Cast a tensor of one type to another.
+pub fn cast(comptime in_ty: type, comptime out_ty: type, in: *const Tensor(in_ty), out: *Tensor(out_ty)) void {
+    std.debug.assert(std.meta.eql(in.shape, out.shape));
+    for (in.constSlice(), out.slice()) |i, *v| {
+        v.* = switch (@typeInfo(in_ty)) {
+            .Int => return switch (@typeInfo(out_ty)) {
+                .Int => @intCast(i),
+                .Float => @floatFromInt(i),
+                .Bool => i != 0,
+                _ => @compileError("Unsupported target type for tensor typecasting"),
+            },
+            .Float => return switch (@typeInfo(out_ty)) {
+                .Int => @intFromFloat(i),
+                .Float => @floatCast(i),
+                .Bool => i != 0,
+                _ => @compileError("Unsupported target type for tensor typecasting"),
+            },
+            .Bool => return switch (@typeInfo(out_ty)) {
+                .Int => @intFromBool(i),
+                .Float => @floatFromInt(@intFromBool(i)),
+                .Bool => i,
+                _ => @compileError("Unsupported target type for tensor typecasting"),
+            },
+            _ => @compileError("Unsupported source type for tensor typecasting"),
+        };
     }
 }
 
