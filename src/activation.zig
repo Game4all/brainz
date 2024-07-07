@@ -91,8 +91,7 @@ pub const Softmax: Activation = .{
 fn softmax_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     ops.exp(f32, in, out);
     const s = ops.sum(f32, out);
-    for (out.slice()) |*v|
-        v.* = v.* / s;
+    ops.mulScalar(f32, out, 1.0 / s, out); // s can't be ever 0.0 since exp can't be 0.0.
     return out;
 }
 
