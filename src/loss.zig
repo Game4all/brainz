@@ -59,7 +59,7 @@ fn bce_derivative(input: *const Tensor(f32), target: *const Tensor(f32), result:
 /// This loss function asumes the output layer uses softmax activation.
 pub const CategoricalCrossEntropy: Loss = .{
     .compute = cce_loss,
-    .computeDerivative = bce_derivative,
+    .computeDerivative = cce_derivative,
 };
 
 fn cce_loss(input: *const Tensor(f32), target: *const Tensor(f32)) f32 {
@@ -74,5 +74,4 @@ fn cce_loss(input: *const Tensor(f32), target: *const Tensor(f32)) f32 {
 
 fn cce_derivative(in: *const Tensor(f32), target: *const Tensor(f32), result: *Tensor(f32)) void {
     ops.sub(f32, in, target, result);
-    return result;
 }
