@@ -142,7 +142,7 @@ pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
     return opBinaryImpl(f32, struct {
-        pub inline fn simd_func(a: anytype, b: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, a: anytype, b: anytype) @Vector(vectorSize, ty) {
             return a - b;
         }
 
@@ -159,7 +159,7 @@ pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
     return opBinaryImpl(f32, struct {
-        pub inline fn simd_func(a: anytype, b: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, a: anytype, b: anytype) @Vector(vectorSize, ty) {
             return a * b;
         }
 
@@ -176,12 +176,29 @@ pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
     return opBinaryImpl(f32, struct {
-        pub inline fn simd_func(a: anytype, b: anytype) @Vector(std.simd.suggestVectorLength(f32) orelse unreachable, ty) {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, a: anytype, b: anytype) @Vector(vectorSize, ty) {
             return a + b;
         }
 
         pub inline fn scalar_func(a: anytype, b: anytype) ty {
             return a + b;
+        }
+    }, mat1, mat2, result);
+}
+
+/// Performs the division of a tensor by another.
+/// Supports broadcasting to a common shape.
+pub fn div(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+    const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
+    std.debug.assert(std.meta.eql(outShape, result.shape));
+
+    return opBinaryImpl(f32, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, a: anytype, b: anytype) @Vector(vectorSize, ty) {
+            return a / b;
+        }
+
+        pub inline fn scalar_func(a: anytype, b: anytype) ty {
+            return a / b;
         }
     }, mat1, mat2, result);
 }
@@ -376,7 +393,7 @@ pub fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, 
 }
 
 /// Fast-path implementation for tensor binary ops
-fn opBinaryImplSimd(comptime ty: type, comptime simd_func: fn (anytype, anytype) callconv(.Inline) @Vector(std.simd.suggestVectorLength(f32) orelse 1, ty), comptime fallback_func: fn (anytype, anytype) callconv(.Inline) ty, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+fn opBinaryImplSimd(comptime ty: type, op_funcs: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     const arg_1 = mat1.constSlice();
     const arg_2 = mat2.constSlice();
     const res = result.slice();
@@ -389,7 +406,7 @@ fn opBinaryImplSimd(comptime ty: type, comptime simd_func: fn (anytype, anytype)
         while (pos < maxVecIndex) : (pos += vectorSize) {
             const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
             const vec_2: @Vector(vectorSize, ty) = arg_2[pos..][0..vectorSize].*;
-            const res_vec: @Vector(vectorSize, ty) = simd_func(vec_1, vec_2);
+            const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, vec_1, vec_2);
 
             res[pos..][0..vectorSize].* = res_vec;
         }
@@ -399,7 +416,7 @@ fn opBinaryImplSimd(comptime ty: type, comptime simd_func: fn (anytype, anytype)
 
     // processing the remaining elements which can't be vectorized.
     for (pos..res.len) |i|
-        res[i] = fallback_func(arg_1[i], arg_2[i]);
+        res[i] = op_funcs.scalar_func(arg_1[i], arg_2[i]);
 }
 
 /// Fallback path implementation for non contiguous / broadcasting tensor binary op
@@ -420,7 +437,7 @@ fn opBinaryImplBroadcast(comptime ty: type, comptime fallback_func: fn (anytype,
 /// - If all shapes are equal and tensors are contiguous, use the SIMD impl (faster)
 fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     if (std.meta.eql(mat1.shape, mat2.shape) and std.meta.eql(mat2.shape, result.shape) and mat1.isContiguous() and mat2.isContiguous() and result.isContiguous()) {
-        opBinaryImplSimd(ty, op_funcs.simd_func, op_funcs.scalar_func, mat1, mat2, result);
+        opBinaryImplSimd(ty, op_funcs, mat1, mat2, result);
     } else {
         opBinaryImplBroadcast(f32, op_funcs.scalar_func, mat1, mat2, result);
     }
