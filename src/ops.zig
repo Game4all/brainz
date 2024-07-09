@@ -351,23 +351,23 @@ pub fn reluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(
 // ================== Unary op implementation ================================
 
 pub fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
-    const vectorSize = std.simd.suggestVectorLength(ty) orelse 1;
-
     const arg_1 = mat1.constSlice();
     const res = result.slice();
 
     var pos: usize = 0;
 
-    if (vectorSize != 1 and @hasDecl(op_funcs, "simd_func")) {
-        const maxVecIndex = (res.len / vectorSize) * vectorSize;
+    if (@hasDecl(op_funcs, "simd_func")) {
+        if (std.simd.suggestVectorLength(ty)) |vectorSize| {
+            const maxVecIndex = (res.len / vectorSize) * vectorSize;
 
-        while (pos < maxVecIndex) : (pos += vectorSize) {
-            const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
-            const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, ctx, vec_1);
-            res[pos..][0..vectorSize].* = res_vec;
+            while (pos < maxVecIndex) : (pos += vectorSize) {
+                const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
+                const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, ctx, vec_1);
+                res[pos..][0..vectorSize].* = res_vec;
+            }
+
+            pos = maxVecIndex;
         }
-
-        pos = maxVecIndex;
     }
 
     // processing the remaining elements which can't be vectorized.
@@ -377,15 +377,13 @@ pub fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, 
 
 /// Fast-path implementation for tensor binary ops
 fn opBinaryImplSimd(comptime ty: type, comptime simd_func: fn (anytype, anytype) callconv(.Inline) @Vector(std.simd.suggestVectorLength(f32) orelse 1, ty), comptime fallback_func: fn (anytype, anytype) callconv(.Inline) ty, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
-    const vectorSize = std.simd.suggestVectorLength(ty) orelse 1;
-
     const arg_1 = mat1.constSlice();
     const arg_2 = mat2.constSlice();
     const res = result.slice();
 
     var pos: usize = 0;
 
-    if (vectorSize != 1) {
+    if (std.simd.suggestVectorLength(ty)) |vectorSize| {
         const maxVecIndex = (res.len / vectorSize) * vectorSize;
 
         while (pos < maxVecIndex) : (pos += vectorSize) {
