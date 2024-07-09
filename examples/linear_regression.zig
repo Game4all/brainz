@@ -43,8 +43,8 @@ pub fn main() !void {
     var weights_grad = try Mat(f32).alloc(try brainz.ops.opShape(.MatMul, dense.grad.shape, inputsT.shape), alloc);
 
     // holds the summed batched error gradients for the biases
-    var bias_grad_summed = try Mat(f32).alloc(try brainz.ops.opShape(.SumAxis, dense.grad.shape, 0), alloc);
-    var weights_grad_summed = try Mat(f32).alloc(try brainz.ops.opShape(.SumAxis, weights_grad.shape, 0), alloc);
+    var bias_grad_summed = try Mat(f32).alloc(try brainz.ops.opShape(.Reduce, dense.grad.shape, 0), alloc);
+    var weights_grad_summed = try Mat(f32).alloc(try brainz.ops.opShape(.Reduce, weights_grad.shape, 0), alloc);
 
     // train for 100 epochs.
     for (0..200) |_| {

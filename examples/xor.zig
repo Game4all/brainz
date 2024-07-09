@@ -85,11 +85,11 @@ const XorMLP = struct {
         self.weight_grad_1 = try Tensor(f32).alloc(shape1, alloc);
         self.weight_grad_2 = try Tensor(f32).alloc(shape2, alloc);
 
-        self.weight_grad_1_f = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, self.weight_grad_1.shape, 0), alloc);
-        self.weight_grad_2_f = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, self.weight_grad_2.shape, 0), alloc);
+        self.weight_grad_1_f = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, self.weight_grad_1.shape, 0), alloc);
+        self.weight_grad_2_f = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, self.weight_grad_2.shape, 0), alloc);
 
-        self.bias_grad_1 = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, self.outputShape(), 0), alloc);
-        self.bias_grad_2 = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, self.outputShape(), 0), alloc);
+        self.bias_grad_1 = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, self.outputShape(), 0), alloc);
+        self.bias_grad_2 = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, self.outputShape(), 0), alloc);
     }
 };
 

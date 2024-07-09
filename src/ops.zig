@@ -12,7 +12,7 @@ pub const Op = enum {
     Exp,
     Log,
     Sum,
-    SumAxis,
+    Reduce,
     Transpose,
     Cast,
 
@@ -60,7 +60,7 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: 
         },
         inline .Cast, .Exp, .Log, .MulScalar, .Sigmoid, .SigmoidBackprop, .ReLu, .ReLuBackprop => return shape1, //same shape as the input
         inline .Sum => .{ 1, 1, 1 }, // outputs a scalar
-        inline .SumAxis => {
+        inline .Reduce => {
             const axis_idx = switch (@typeInfo(@TypeOf(shape2))) {
                 .ComptimeInt => shape2,
                 else => @compileError("Expected an integer for shape2."),
@@ -519,7 +519,7 @@ test "tensor axis sum" {
     for (mat1.slice(), 0..) |*v, i|
         v.* = @floatFromInt(i);
 
-    const shape = try opShape(.SumAxis, .{ 3, 3, 3 }, 0);
+    const shape = try opShape(.Reduce, .{ 3, 3, 3 }, 0);
     try std.testing.expectEqual(.{ 0, 3, 3 }, shape);
 
     var result = try Tensor(f32).alloc(.{ 0, 3, 3 }, std.testing.allocator);

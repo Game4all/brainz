@@ -172,10 +172,10 @@ const ClassificationMLP = struct {
         self.weight_grad_1 = try Tensor(f32).alloc(wg1_shape, alloc);
         self.weight_grad_2 = try Tensor(f32).alloc(wg2_shape, alloc);
 
-        self.weight_grad_1_f = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, wg1_shape, 0), alloc);
-        self.weight_grad_2_f = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, wg2_shape, 0), alloc);
+        self.weight_grad_1_f = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, wg1_shape, 0), alloc);
+        self.weight_grad_2_f = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, wg2_shape, 0), alloc);
 
-        self.bias_grad_1 = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, self.layer_1.outputShape(), 0), alloc);
-        self.bias_grad_2 = try Tensor(f32).alloc(try brainz.ops.opShape(.SumAxis, self.layer_2.outputShape(), 0), alloc);
+        self.bias_grad_1 = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, self.layer_1.outputShape(), 0), alloc);
+        self.bias_grad_2 = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, self.layer_2.outputShape(), 0), alloc);
     }
 };
