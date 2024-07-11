@@ -21,6 +21,8 @@ pub const Op = enum {
     SigmoidBackprop,
     ReLu,
     ReLuBackprop,
+    SiLu,
+    SiLuBackprop,
 };
 
 /// Returns the shape of the tensor resulting from the given operation.
@@ -58,7 +60,7 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: 
 
             return final_shape;
         },
-        inline .Cast, .Exp, .Log, .MulScalar, .Sigmoid, .SigmoidBackprop, .ReLu, .ReLuBackprop => return shape1, //same shape as the input
+        inline .Cast, .Exp, .Log, .MulScalar, .Sigmoid, .SigmoidBackprop, .ReLu, .ReLuBackprop, .SiLu, .SiLuBackprop => return shape1, //same shape as the input
         inline .Sum => .{ 1, 1, 1 }, // outputs a scalar
         inline .Reduce => {
             const axis_idx = switch (@typeInfo(@TypeOf(shape2))) {
@@ -315,7 +317,8 @@ pub fn cast(comptime in_ty: type, comptime out_ty: type, in: *const Tensor(in_ty
 pub fn sigmoid(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
-            return @as(@Vector(vectorSize, ty), @splat(1)) / (@as(@Vector(vectorSize, ty), @splat(1)) + std.math.exp(-a));
+            const ones: @Vector(vectorSize, ty) = @splat(1);
+            return ones / (ones + std.math.exp(-a));
         }
 
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
@@ -328,7 +331,8 @@ pub fn sigmoid(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) 
 pub fn sigmoidBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
-            const s = @as(@Vector(vectorSize, ty), @splat(1)) / (@as(@Vector(vectorSize, ty), @splat(1)) + std.math.exp(-a));
+            const ones: @Vector(vectorSize, ty) = @splat(1);
+            const s = ones / (ones + std.math.exp(-a));
             return s - (s * s);
         }
 
@@ -361,6 +365,37 @@ pub fn reluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(
 
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return @max(std.math.sign(a), 0);
+        }
+    }, .{}, mat1, result);
+}
+
+/// SiLu activation aka sigmoid linear unit.
+pub fn silu(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+    return opUnaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
+            const ones: @Vector(vectorSize, ty) = @splat(1);
+            return a / (ones + std.math.exp(-a));
+        }
+
+        pub inline fn scalar_func(_: anytype, a: anytype) ty {
+            return a / (1 + std.math.exp(-a));
+        }
+    }, .{}, mat1, result);
+}
+
+/// SiLu derivative.
+pub fn siluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+    return opUnaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
+            const ones: @Vector(vectorSize, ty) = @splat(1);
+            const s = ones / (ones + std.math.exp(-a));
+
+            return s * (ones + a * (ones - s));
+        }
+
+        pub inline fn scalar_func(_: anytype, a: anytype) ty {
+            const s = 1 / (1 + std.math.exp(-a));
+            return s * (1 + a * (1 - s));
         }
     }, .{}, mat1, result);
 }

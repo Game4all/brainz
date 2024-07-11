@@ -62,6 +62,23 @@ fn sigmoid_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     return out;
 }
 
+/// Sigmoid linear unit activation function
+pub const SiLu: Activation = .{
+    .apply = silu_activation,
+    .applyDerivative = silu_derivative,
+    .name = @tagName(.silu),
+};
+
+fn silu_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+    ops.silu(f32, in, out);
+    return out;
+}
+
+fn silu_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+    ops.siluBackprop(f32, in, out);
+    return out;
+}
+
 /// Heaviside aka step unit activation function
 pub const Heaviside: Activation = .{
     .apply = heaviside_activation,
