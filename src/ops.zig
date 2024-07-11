@@ -367,7 +367,7 @@ pub fn reluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(
 
 // ================== Unary op implementation ================================
 
-pub fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     const arg_1 = mat1.constSlice();
     const res = result.slice();
 
@@ -392,34 +392,7 @@ pub fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, 
         res[i] = op_funcs.scalar_func(ctx, arg_1[i]);
 }
 
-/// Fast-path implementation for tensor binary ops
-fn opBinaryImplSimd(comptime ty: type, op_funcs: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
-    const arg_1 = mat1.constSlice();
-    const arg_2 = mat2.constSlice();
-    const res = result.slice();
-
-    var pos: usize = 0;
-
-    if (std.simd.suggestVectorLength(ty)) |vectorSize| {
-        const maxVecIndex = (res.len / vectorSize) * vectorSize;
-
-        while (pos < maxVecIndex) : (pos += vectorSize) {
-            const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
-            const vec_2: @Vector(vectorSize, ty) = arg_2[pos..][0..vectorSize].*;
-            const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, vec_1, vec_2);
-
-            res[pos..][0..vectorSize].* = res_vec;
-        }
-
-        pos = maxVecIndex;
-    }
-
-    // processing the remaining elements which can't be vectorized.
-    for (pos..res.len) |i|
-        res[i] = op_funcs.scalar_func(arg_1[i], arg_2[i]);
-}
-
-/// Fallback path implementation for non contiguous / broadcasting tensor binary op
+/// Fallback path implementation for non contiguous tensor binary op
 fn opBinaryImplBroadcast(comptime ty: type, comptime fallback_func: fn (anytype, anytype) callconv(.Inline) ty, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     for (0..@max(result.shape[0], 1)) |i| {
         for (0..@max(result.shape[1], 1)) |j| {
@@ -432,15 +405,63 @@ fn opBinaryImplBroadcast(comptime ty: type, comptime fallback_func: fn (anytype,
     }
 }
 
+/// Fast-path for batched tensor (broadcasting on batch dimension) binary op.
+/// Assumes both tensors have matching dimensions and are contiguous on all non-batch dimensions.
+fn opBinaryImplBatched(comptime ty: type, op_funcs: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+    const arg_1 = mat1.constSlice();
+    const arg_2 = mat2.constSlice();
+    const res = result.slice();
+
+    const batchStride = result.strides.@"0";
+
+    for (0..@max(result.shape[0], 1)) |b| {
+        var pos: usize = 0;
+
+        if (std.simd.suggestVectorLength(ty)) |vectorSize| {
+            const maxVecIndex = (batchStride / vectorSize) * vectorSize;
+
+            while (pos < maxVecIndex) : (pos += vectorSize) {
+                const arg1_i = (b % @max(mat1.shape.@"0", 1)) * batchStride + pos;
+                const arg2_i = (b % @max(mat2.shape.@"0", 1)) * batchStride + pos;
+
+                const vec_1: @Vector(vectorSize, ty) = arg_1[arg1_i..][0..vectorSize].*;
+                const vec_2: @Vector(vectorSize, ty) = arg_2[arg2_i..][0..vectorSize].*;
+                const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, vec_1, vec_2);
+
+                res[(b * batchStride + pos)..][0..vectorSize].* = res_vec;
+            }
+
+            pos = maxVecIndex;
+        }
+
+        for (pos..batchStride) |i| {
+            const arg1_i = (b % @max(mat1.shape.@"0", 1)) * batchStride + i;
+            const arg2_i = (b % @max(mat2.shape.@"0", 1)) * batchStride + i;
+            res[b * batchStride + i] = op_funcs.scalar_func(arg_1[arg1_i], arg_2[arg2_i]);
+        }
+    }
+}
+
 /// Performs various shape and stride checks on the operand and result tensors to select the most adapted operation implementation.
 /// - If the mat1 or mat2 or result tensors have different shapes, or aren't contiguous in memory, use the broadcasting impl (slow)
 /// - If all shapes are equal and tensors are contiguous, use the SIMD impl (faster)
 fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
-    if (std.meta.eql(mat1.shape, mat2.shape) and std.meta.eql(mat2.shape, result.shape) and mat1.isContiguous() and mat2.isContiguous() and result.isContiguous()) {
-        opBinaryImplSimd(ty, op_funcs, mat1, mat2, result);
+    if (mat1.isContiguous() and mat2.isContiguous() and result.isContiguous() and canDoBatching(mat1.shape, mat2.shape) and canDoBatching(mat2.shape, result.shape)) {
+        opBinaryImplBatched(ty, op_funcs, mat1, mat2, result);
     } else {
         opBinaryImplBroadcast(f32, op_funcs.scalar_func, mat1, mat2, result);
     }
+}
+
+// Check if two shapes have matching dimensions except for the batch dimensions
+// Enables SIMD operations for batch computation if true.
+inline fn canDoBatching(shape1: struct { usize, usize, usize }, shape2: struct { usize, usize, usize }) bool {
+    comptime var i = 2;
+    inline while (i > 0) : (i -= 1) {
+        if (shape1[i] != shape2[i])
+            return false;
+    }
+    return true;
 }
 
 test "shape broadcasting" {
