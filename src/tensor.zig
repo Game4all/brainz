@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Random = std.rand.Random;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 
 /// A Tensor with NxMxL dimensions.
 /// A tensor is simply a view into a block of memory such that "views" of a tensor are tensors pointing to the **same memory block** (with different strides).
@@ -151,6 +152,58 @@ pub fn Tensor(dtype: type) type {
     };
 }
 
+/// A wrapper around an arena allocator to allocate tensors.
+pub const Arena = struct {
+    /// Allocator holding tensor memory.
+    memory_pool: ArenaAllocator,
+    /// Allocator holding the tensors themselves.
+    objects: ArenaAllocator,
+
+    /// Initializes the arena using the specified allocator
+    pub fn init(allocator: Allocator) @This() {
+        return .{
+            .memory_pool = ArenaAllocator.init(allocator),
+            .objects = ArenaAllocator.init(allocator),
+        };
+    }
+
+    /// Creates a tensor in the arena.
+    pub fn alloc(self: *@This(), dtype: type, shape: struct { usize, usize, usize }) !*Tensor(dtype) {
+        const t_allocator = self.objects.allocator();
+        const m_alloc = self.memory_pool.allocator();
+
+        const tensor = try t_allocator.create(Tensor(dtype));
+        errdefer t_allocator.destroy(tensor);
+
+        tensor.* = try Tensor(dtype).alloc(shape, m_alloc);
+
+        return tensor;
+    }
+
+    /// Creates a tensor without initializing its memory.
+    /// This is useful if you need control over how the tensor memory is initialized. ie: creating long lived views of tensors.
+    pub inline fn allocRaw(self: *@This(), dtype: type) !*Tensor(dtype) {
+        const t_allocator = self.objects.allocator();
+        return try t_allocator.create(Tensor(dtype));
+    }
+
+    /// Returns the allocator used for allocating tensor objects.
+    pub inline fn objectAllocator(self: *@This()) Allocator {
+        return self.objects.allocator();
+    }
+
+    /// Queries the arena allocator about underlying tensor memory usage in bytes.
+    pub inline fn queryMemUsage(self: *const @This()) usize {
+        return self.memory_pool.queryCapacity();
+    }
+
+    /// Deinitializes the arena
+    pub fn deinit(self: *@This()) void {
+        self.memory_pool.deinit();
+        self.objects.deinit();
+    }
+};
+
 test "tensor indexing + stride test" {
     // create a 3x3 square tensor.
 
@@ -193,4 +246,21 @@ test "tensor alloc test" {
 
     try std.testing.expectEqual(9, mat1.constSlice().len);
     try std.testing.expectEqual(27, mat2.constSlice().len);
+}
+
+test "tensor arena test" {
+    var arena = Arena.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const mat = try arena.alloc(f32, .{ 0, 3, 3 });
+    for (0..3) |value|
+        mat.set(.{ 0, value, value }, @floatFromInt(value));
+
+    mat.set(.{ 0, 0, 2 }, 3.0);
+
+    const matT = try arena.allocRaw(f32);
+    matT.* = mat.transpose();
+
+    try std.testing.expectEqual(3, mat.get(.{ 0, 0, 2 }));
+    try std.testing.expectEqual(3, matT.get(.{ 0, 2, 0 }));
 }
