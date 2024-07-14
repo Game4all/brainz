@@ -109,8 +109,8 @@ pub fn matMul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty
     std.debug.assert(result.shape[0] == @max(mat1.shape[0], mat2.shape[0]));
 
     for (0..@max(result.shape[0], 1)) |b| {
-        for (0..@max(result.shape[2], 1)) |j| {
-            for (0..@max(result.shape[1], 1)) |i| {
+        for (0..@max(result.shape[1], 1)) |i| {
+            for (0..@max(result.shape[2], 1)) |j| {
                 var s: ty = 0;
 
                 for (0..@max(mat1.shape[2], 1)) |k|
