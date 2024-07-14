@@ -37,9 +37,9 @@ pub fn main() !void {
     var mlp: ClassificationMLP = undefined;
     try mlp.init(alloc);
 
-    var input_mat = try Tensor(f32).alloc(mlp.inputShape(), alloc);
-    var expected_mat = try Tensor(f32).alloc(mlp.outputShape(), alloc);
-    var loss_grad = try Tensor(f32).alloc(mlp.outputShape(), alloc);
+    var input_mat = try Tensor(f32).init(mlp.inputShape(), alloc);
+    var expected_mat = try Tensor(f32).init(mlp.outputShape(), alloc);
+    var loss_grad = try Tensor(f32).init(mlp.outputShape(), alloc);
 
     const BCE = brainz.loss.BinaryCrossEntropy;
 
@@ -78,8 +78,8 @@ pub fn main() !void {
 
     try out.print("========= Evaluating network ==========\n", .{});
 
-    const eval_inputs = try Tensor(f32).fromSlice(.{ 10, 624, 1 }, @as(*[6240]f32, @constCast(@ptrCast(&DATASET.EVAL_DATASET[0])))[0..]);
-    const eval_labels = try Tensor(f32).fromSlice(.{ 10, 1, 1 }, @constCast(@ptrCast(EVAL_LABELS[0..])));
+    const eval_inputs = try Tensor(f32).initFromSlice(.{ 10, 624, 1 }, @as(*[6240]f32, @constCast(@ptrCast(&DATASET.EVAL_DATASET[0])))[0..]);
+    const eval_labels = try Tensor(f32).initFromSlice(.{ 10, 1, 1 }, @constCast(@ptrCast(EVAL_LABELS[0..])));
 
     const results = mlp.forward(&eval_inputs);
 
@@ -169,13 +169,13 @@ const ClassificationMLP = struct {
             try brainz.ops.opShape(.Transpose, self.layer_1.outputShape(), null),
         );
 
-        self.weight_grad_1 = try Tensor(f32).alloc(wg1_shape, alloc);
-        self.weight_grad_2 = try Tensor(f32).alloc(wg2_shape, alloc);
+        self.weight_grad_1 = try Tensor(f32).init(wg1_shape, alloc);
+        self.weight_grad_2 = try Tensor(f32).init(wg2_shape, alloc);
 
-        self.weight_grad_1_f = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, wg1_shape, 0), alloc);
-        self.weight_grad_2_f = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, wg2_shape, 0), alloc);
+        self.weight_grad_1_f = try Tensor(f32).init(try brainz.ops.opShape(.Reduce, wg1_shape, 0), alloc);
+        self.weight_grad_2_f = try Tensor(f32).init(try brainz.ops.opShape(.Reduce, wg2_shape, 0), alloc);
 
-        self.bias_grad_1 = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, self.layer_1.outputShape(), 0), alloc);
-        self.bias_grad_2 = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, self.layer_2.outputShape(), 0), alloc);
+        self.bias_grad_1 = try Tensor(f32).init(try brainz.ops.opShape(.Reduce, self.layer_1.outputShape(), 0), alloc);
+        self.bias_grad_2 = try Tensor(f32).init(try brainz.ops.opShape(.Reduce, self.layer_2.outputShape(), 0), alloc);
     }
 };

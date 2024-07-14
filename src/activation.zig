@@ -122,10 +122,10 @@ fn softmax_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
 }
 
 test "softmax activation" {
-    var test_mat = try Tensor(f32).alloc(.{ 0, 3, 1 }, std.testing.allocator);
+    var test_mat = try Tensor(f32).init(.{ 0, 3, 1 }, std.testing.allocator);
     defer test_mat.deinit(std.testing.allocator);
 
-    var softmax_mat = try Tensor(f32).alloc(test_mat.shape, std.testing.allocator);
+    var softmax_mat = try Tensor(f32).init(test_mat.shape, std.testing.allocator);
     defer softmax_mat.deinit(std.testing.allocator);
 
     test_mat.set(.{ 0, 0, 0 }, 1.0);
@@ -137,12 +137,12 @@ test "softmax activation" {
 }
 
 test "relu activation" {
-    var test_mat = try Tensor(f32).fromSlice(.{ 0, 0, 9 }, @constCast(&[_]f32{ 0.0, -1.0, 4.0, 0.0, -1.0, 4.0, 0.0, -1.0, 4.0 }));
+    var test_mat = try Tensor(f32).initFromSlice(.{ 0, 0, 9 }, @constCast(&[_]f32{ 0.0, -1.0, 4.0, 0.0, -1.0, 4.0, 0.0, -1.0, 4.0 }));
 
-    var results = try Tensor(f32).alloc(test_mat.shape, std.testing.allocator);
+    var results = try Tensor(f32).init(test_mat.shape, std.testing.allocator);
     defer results.deinit(std.testing.allocator);
 
-    var backprop_results = try Tensor(f32).alloc(test_mat.shape, std.testing.allocator);
+    var backprop_results = try Tensor(f32).init(test_mat.shape, std.testing.allocator);
     defer backprop_results.deinit(std.testing.allocator);
 
     ops.relu(f32, &test_mat, &results);
@@ -153,10 +153,11 @@ test "relu activation" {
 }
 
 test "sigmoid activation" {
-    var test_mat = try Tensor(f32).allocWithValue(.{ 0, 3, 1 }, 1.0, std.testing.allocator);
+    var test_mat = try Tensor(f32).init(.{ 0, 3, 1 }, std.testing.allocator);
+    test_mat.fill(1.0);
     defer test_mat.deinit(std.testing.allocator);
 
-    var sigmoid_mat = try Tensor(f32).alloc(test_mat.shape, std.testing.allocator);
+    var sigmoid_mat = try Tensor(f32).init(test_mat.shape, std.testing.allocator);
     defer sigmoid_mat.deinit(std.testing.allocator);
 
     _ = Sigmoid.apply(&test_mat, &sigmoid_mat);

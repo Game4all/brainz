@@ -18,7 +18,7 @@ pub fn Tensor(dtype: type) type {
 
         /// Creates a tensor of specified dimensions from the specified slice.
         /// NOTE: The created tensor **doesn't own** the slice and care must be taken by the programmer to deallocate it.
-        pub fn fromSlice(dims: struct { usize, usize, usize }, data: []dtype) !@This() {
+        pub fn initFromSlice(dims: struct { usize, usize, usize }, data: []dtype) !@This() {
             if (std.meta.eql(dims, .{ 0, 0, 0 }))
                 return error.InvalidStorageSize;
 
@@ -34,28 +34,11 @@ pub fn Tensor(dtype: type) type {
 
         /// Creates a tensor and allocate its storage using the specified allocator.
         /// See `deinit` to deallocate the tensor storage.
-        pub fn alloc(dims: struct { usize, usize, usize }, allocator: Allocator) !@This() {
+        pub fn init(dims: struct { usize, usize, usize }, allocator: Allocator) !@This() {
             const memory = try allocator.alloc(dtype, @max(1, dims.@"2") * @max(1, dims.@"1") * @max(1, dims.@"0"));
             errdefer allocator.free(memory);
 
-            return try fromSlice(dims, memory);
-        }
-
-        /// Creates a tensor with all its values set to the given value.
-        /// See `deinit` to deallocate the tensor storage.
-        pub fn allocWithValue(dims: struct { usize, usize, usize }, def: dtype, allocator: Allocator) !@This() {
-            var tensor = try alloc(dims, allocator);
-            tensor.fill(def);
-            return tensor;
-        }
-
-        /// Creates a tensor with all its values initialized with a RNG.
-        /// See `deinit` to deallocate the tensor storage.
-        pub fn allocRandom(dims: struct { usize, usize, usize }, rng: Random, allocator: Allocator) !@This() {
-            var mat = try alloc(dims, allocator);
-            for (mat.slice()) |*val|
-                val.* = rng.floatNorm(dtype);
-            return mat;
+            return try initFromSlice(dims, memory);
         }
 
         /// Gets the value in the tensor at the specified position.
@@ -79,6 +62,12 @@ pub fn Tensor(dtype: type) type {
         /// Fills the tensor with the specified value.
         pub inline fn fill(self: *@This(), val: dtype) void {
             @memset(self.slice(), val);
+        }
+
+        /// Fills the tensor with random values
+        pub fn fillRandom(self: *@This(), rng: Random) void {
+            for (self.slice()) |*val|
+                val.* = rng.floatNorm(dtype);
         }
 
         /// Fills the tensor with the specified slice.
@@ -124,7 +113,7 @@ pub fn Tensor(dtype: type) type {
             return self.strides.@"0" >= self.strides.@"1" and self.strides.@"1" >= self.strides.@"2";
         }
 
-        /// Frees the values.
+        /// Frees the memory this tensor holds.
         pub fn deinit(self: *@This(), allocator: Allocator) void {
             allocator.free(self.data);
         }
@@ -175,7 +164,7 @@ pub const Arena = struct {
         const tensor = try t_allocator.create(Tensor(dtype));
         errdefer t_allocator.destroy(tensor);
 
-        tensor.* = try Tensor(dtype).alloc(shape, m_alloc);
+        tensor.* = try Tensor(dtype).init(shape, m_alloc);
 
         return tensor;
     }
@@ -208,7 +197,9 @@ test "tensor indexing + stride test" {
     // create a 3x3 square tensor.
 
     // default stride (3, 1)
-    var mat = try Tensor(f32).allocWithValue(.{ 0, 3, 3 }, 0, std.testing.allocator);
+    var mat = try Tensor(f32).init(.{ 0, 3, 3 }, std.testing.allocator);
+    mat.fill(0.0);
+
     defer mat.deinit(std.testing.allocator);
 
     for (0..3) |value|
@@ -238,10 +229,10 @@ test "tensor indexing + stride test" {
 }
 
 test "tensor alloc test" {
-    var mat1 = try Tensor(f32).allocWithValue(.{ 3, 0, 3 }, 0, std.testing.allocator);
+    var mat1 = try Tensor(f32).init(.{ 3, 0, 3 }, std.testing.allocator);
     defer mat1.deinit(std.testing.allocator);
 
-    var mat2 = try Tensor(f32).allocWithValue(.{ 3, 3, 3 }, 0, std.testing.allocator);
+    var mat2 = try Tensor(f32).init(.{ 3, 3, 3 }, std.testing.allocator);
     defer mat2.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(9, mat1.constSlice().len);

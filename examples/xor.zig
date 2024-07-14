@@ -82,14 +82,14 @@ const XorMLP = struct {
             try brainz.ops.opShape(.Transpose, self.layer_1.outputShape(), null),
         );
 
-        self.weight_grad_1 = try Tensor(f32).alloc(shape1, alloc);
-        self.weight_grad_2 = try Tensor(f32).alloc(shape2, alloc);
+        self.weight_grad_1 = try Tensor(f32).init(shape1, alloc);
+        self.weight_grad_2 = try Tensor(f32).init(shape2, alloc);
 
-        self.weight_grad_1_f = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, self.weight_grad_1.shape, 0), alloc);
-        self.weight_grad_2_f = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, self.weight_grad_2.shape, 0), alloc);
+        self.weight_grad_1_f = try Tensor(f32).init(try brainz.ops.opShape(.Reduce, self.weight_grad_1.shape, 0), alloc);
+        self.weight_grad_2_f = try Tensor(f32).init(try brainz.ops.opShape(.Reduce, self.weight_grad_2.shape, 0), alloc);
 
-        self.bias_grad_1 = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, self.outputShape(), 0), alloc);
-        self.bias_grad_2 = try Tensor(f32).alloc(try brainz.ops.opShape(.Reduce, self.outputShape(), 0), alloc);
+        self.bias_grad_1 = try Tensor(f32).init(try brainz.ops.opShape(.Reduce, self.outputShape(), 0), alloc);
+        self.bias_grad_2 = try Tensor(f32).init(try brainz.ops.opShape(.Reduce, self.outputShape(), 0), alloc);
     }
 };
 
@@ -105,16 +105,16 @@ pub fn main() !void {
 
     const BCE = brainz.loss.BinaryCrossEntropy;
 
-    var expected_mat = try Tensor(f32).fromSlice(mlp.outputShape(), @constCast(@ptrCast(&[_][1]f32{
+    var expected_mat = try Tensor(f32).initFromSlice(mlp.outputShape(), @constCast(@ptrCast(&[_][1]f32{
         [1]f32{0.0},
         [1]f32{1.0},
         [1]f32{1.0},
         [1]f32{0.0},
     })));
 
-    var loss_grad = try Tensor(f32).alloc(mlp.outputShape(), alloc);
+    var loss_grad = try Tensor(f32).init(mlp.outputShape(), alloc);
 
-    var input_mat = try Tensor(f32).fromSlice(mlp.inputShape(), @constCast(@ptrCast(&[_]f32{
+    var input_mat = try Tensor(f32).initFromSlice(mlp.inputShape(), @constCast(@ptrCast(&[_]f32{
         0.0, 0.0,
         0.0, 1.0,
         1.0, 0.0,
