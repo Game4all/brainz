@@ -66,7 +66,7 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime batch_siz
         pub fn forward(self: *@This(), inputs: *const Tensor(f32)) *Tensor(f32) {
             // perform linear combination
             root.ops.matMul(f32, &self.weights, inputs, &self.last_outputs);
-            root.ops.add(f32, &self.biases, &self.last_outputs, &self.last_outputs);
+            root.ops.add(f32, &self.biases, &self.last_outputs, &self.last_outputs, .{});
 
             // apply activation element wise
             return activation.apply(&self.last_outputs, &self.activation_outputs);
@@ -220,15 +220,14 @@ test "linear regression backprop test" {
             // compute the gradients for the layer.
             // they are stored in the `.grad`
             _ = regressor.backwards(&loss_grad);
-            ops.mulScalar(f32, &regressor.grad, 0.1, &regressor.grad); // scale the error gradient by 0.1 so we don't have to do it twice for the weight and bias update.
 
             // compute the grad wrt to the weights.
             ops.matMul(f32, &regressor.grad, &input_transposed, &weights_grad);
 
             // update the weights
-            ops.sub(f32, &regressor.weights, &weights_grad, &regressor.weights); // Wnew = Wold - Wgrad;
+            ops.sub(f32, &regressor.weights, &weights_grad, &regressor.weights, .{ .alpha = 0.1 }); // Wnew = Wold - Wgrad;
             // update the bias
-            ops.sub(f32, &regressor.biases, &regressor.grad, &regressor.biases); // Bnew = Bold - grad;
+            ops.sub(f32, &regressor.biases, &regressor.grad, &regressor.biases, .{ .alpha = 0.1 }); // Bnew = Bold - grad;
         }
     }
 

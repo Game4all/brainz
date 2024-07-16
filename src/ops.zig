@@ -139,19 +139,20 @@ pub fn mulScalar(comptime ty: type, mat1: *const Tensor(ty), scalar: ty, result:
 
 /// Performs substraction of two tensors.
 /// Supports broadcasting to a common shape.
-pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), args: struct { alpha: ty = 1 }) void {
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
-    return opBinaryImpl(f32, struct {
-        pub inline fn simd_func(comptime vectorSize: comptime_int, a: anytype, b: anytype) @Vector(vectorSize, ty) {
-            return a - b;
+    return opBinaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, ctx: anytype, a: anytype, b: anytype) @Vector(vectorSize, ty) {
+            const scaler: @Vector(vectorSize, ty) = @splat(ctx.alpha);
+            return a - scaler * b;
         }
 
-        pub inline fn scalar_func(a: anytype, b: anytype) ty {
-            return a - b;
+        pub inline fn scalar_func(ctx: anytype, a: anytype, b: anytype) ty {
+            return a - ctx.alpha * b;
         }
-    }, mat1, mat2, result);
+    }, args, mat1, mat2, result);
 }
 
 /// Performs element-wise multiplication of two tensors (aka the hadamard product).
@@ -160,32 +161,34 @@ pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
-    return opBinaryImpl(f32, struct {
-        pub inline fn simd_func(comptime vectorSize: comptime_int, a: anytype, b: anytype) @Vector(vectorSize, ty) {
+    return opBinaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype, b: anytype) @Vector(vectorSize, ty) {
             return a * b;
         }
 
-        pub inline fn scalar_func(a: anytype, b: anytype) ty {
+        pub inline fn scalar_func(_: anytype, a: anytype, b: anytype) ty {
             return a * b;
         }
-    }, mat1, mat2, result);
+    }, .{}, mat1, mat2, result);
 }
 
 /// Performs the addition of two tensors
 /// Supports broadcasting to a common shape.
-pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+/// Supports specifying an alpha specifier to scale the added value.
+pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), args: struct { alpha: ty = 1 }) void {
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
-    return opBinaryImpl(f32, struct {
-        pub inline fn simd_func(comptime vectorSize: comptime_int, a: anytype, b: anytype) @Vector(vectorSize, ty) {
-            return a + b;
+    return opBinaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, ctx: anytype, a: anytype, b: anytype) @Vector(vectorSize, ty) {
+            const scaler: @Vector(vectorSize, ty) = @splat(ctx.alpha);
+            return a + scaler * b;
         }
 
-        pub inline fn scalar_func(a: anytype, b: anytype) ty {
-            return a + b;
+        pub inline fn scalar_func(ctx: anytype, a: anytype, b: anytype) ty {
+            return a + ctx.alpha * b;
         }
-    }, mat1, mat2, result);
+    }, args, mat1, mat2, result);
 }
 
 /// Performs the division of a tensor by another.
@@ -194,12 +197,12 @@ pub fn div(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
-    return opBinaryImpl(f32, struct {
-        pub inline fn simd_func(comptime vectorSize: comptime_int, a: anytype, b: anytype) @Vector(vectorSize, ty) {
+    return opBinaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype, b: anytype) @Vector(vectorSize, ty) {
             return a / b;
         }
 
-        pub inline fn scalar_func(a: anytype, b: anytype) ty {
+        pub inline fn scalar_func(_: anytype, a: anytype, b: anytype) ty {
             return a / b;
         }
     }, mat1, mat2, result);
@@ -428,13 +431,13 @@ fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1
 }
 
 /// Fallback path implementation for non contiguous tensor binary op
-fn opBinaryImplBroadcast(comptime ty: type, comptime fallback_func: fn (anytype, anytype) callconv(.Inline) ty, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+fn opBinaryImplBroadcast(comptime ty: type, comptime fallback_func: fn (anytype, anytype, anytype) callconv(.Inline) ty, ctx: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     for (0..@max(result.shape[0], 1)) |i| {
         for (0..@max(result.shape[1], 1)) |j| {
             for (0..@max(result.shape[2], 1)) |k| {
                 const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
                 const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
-                result.set(.{ i, j, k }, fallback_func(a, b));
+                result.set(.{ i, j, k }, fallback_func(ctx, a, b));
             }
         }
     }
@@ -442,7 +445,7 @@ fn opBinaryImplBroadcast(comptime ty: type, comptime fallback_func: fn (anytype,
 
 /// Fast-path for batched tensor (broadcasting on batch dimension) binary op.
 /// Assumes both tensors have matching dimensions and are contiguous on all non-batch dimensions.
-fn opBinaryImplBatched(comptime ty: type, op_funcs: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+fn opBinaryImplBatched(comptime ty: type, op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     const arg_1 = mat1.constSlice();
     const arg_2 = mat2.constSlice();
     const res = result.slice();
@@ -461,7 +464,7 @@ fn opBinaryImplBatched(comptime ty: type, op_funcs: anytype, mat1: *const Tensor
 
                 const vec_1: @Vector(vectorSize, ty) = arg_1[arg1_i..][0..vectorSize].*;
                 const vec_2: @Vector(vectorSize, ty) = arg_2[arg2_i..][0..vectorSize].*;
-                const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, vec_1, vec_2);
+                const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, ctx, vec_1, vec_2);
 
                 res[(b * batchStride + pos)..][0..vectorSize].* = res_vec;
             }
@@ -472,7 +475,7 @@ fn opBinaryImplBatched(comptime ty: type, op_funcs: anytype, mat1: *const Tensor
         for (pos..batchStride) |i| {
             const arg1_i = (b % @max(mat1.shape.@"0", 1)) * batchStride + i;
             const arg2_i = (b % @max(mat2.shape.@"0", 1)) * batchStride + i;
-            res[b * batchStride + i] = op_funcs.scalar_func(arg_1[arg1_i], arg_2[arg2_i]);
+            res[b * batchStride + i] = op_funcs.scalar_func(ctx, arg_1[arg1_i], arg_2[arg2_i]);
         }
     }
 }
@@ -480,11 +483,11 @@ fn opBinaryImplBatched(comptime ty: type, op_funcs: anytype, mat1: *const Tensor
 /// Performs various shape and stride checks on the operand and result tensors to select the most adapted operation implementation.
 /// - If the mat1 or mat2 or result tensors have different shapes, or aren't contiguous in memory, use the broadcasting impl (slow)
 /// - If all shapes are equal and tensors are contiguous, use the SIMD impl (faster)
-fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     if (mat1.isContiguous() and mat2.isContiguous() and result.isContiguous() and canDoBatching(mat1.shape, mat2.shape) and canDoBatching(mat2.shape, result.shape)) {
-        opBinaryImplBatched(ty, op_funcs, mat1, mat2, result);
+        opBinaryImplBatched(ty, op_funcs, ctx, mat1, mat2, result);
     } else {
-        opBinaryImplBroadcast(f32, op_funcs.scalar_func, mat1, mat2, result);
+        opBinaryImplBroadcast(f32, op_funcs.scalar_func, ctx, mat1, mat2, result);
     }
 }
 
@@ -525,7 +528,7 @@ test "add op test" {
     mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 4.0 });
     mat2.setData(&[_]f32{ 2.0, 2.0 });
 
-    add(f32, &mat1, &mat2, &mat3);
+    add(f32, &mat1, &mat2, &mat3, .{});
     try std.testing.expectEqualSlices(f32, &[_]f32{ 3.0, 4.0, 5.0, 6.0 }, mat3.constSlice());
 }
 
@@ -544,7 +547,7 @@ test "sub op test" {
     mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 4.0 });
     mat2.setData(&[_]f32{ 2.0, 2.0 });
 
-    sub(f32, &mat1, &mat2, &mat3);
+    sub(f32, &mat1, &mat2, &mat3, .{});
     try std.testing.expectEqualSlices(f32, &[_]f32{ -1.0, 0.0, 1.0, 2.0 }, mat3.constSlice());
 }
 

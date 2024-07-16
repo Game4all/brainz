@@ -137,20 +137,12 @@ const ClassificationMLP = struct {
         brainz.ops.reduce(f32, .Sum, &self.layer_1.grad, 0, &self.bias_grad_1);
         brainz.ops.reduce(f32, .Sum, &self.layer_2.grad, 0, &self.bias_grad_2);
 
-        // average the batched weight gradients and scale them wrt learning rate
-        brainz.ops.mulScalar(f32, &self.weight_grad_1_f, lr * 0.1, &self.weight_grad_1_f);
-        brainz.ops.mulScalar(f32, &self.weight_grad_2_f, lr * 0.1, &self.weight_grad_2_f);
+        // update the weights and biases for each layer scaling the gradients by the batch size and learning rate
+        brainz.ops.sub(f32, &self.layer_1.weights, &self.weight_grad_1_f, &self.layer_1.weights, .{ .alpha = lr * 0.1 });
+        brainz.ops.sub(f32, &self.layer_1.biases, &self.bias_grad_1, &self.layer_1.biases, .{ .alpha = lr * 0.1 });
 
-        // average the batched bias gradients and scale them wrt learning rate
-        brainz.ops.mulScalar(f32, &self.bias_grad_1, lr * 0.1, &self.bias_grad_1);
-        brainz.ops.mulScalar(f32, &self.bias_grad_2, lr * 0.1, &self.bias_grad_2);
-
-        // update the weights and biases for each layer
-        brainz.ops.sub(f32, &self.layer_1.weights, &self.weight_grad_1_f, &self.layer_1.weights);
-        brainz.ops.sub(f32, &self.layer_1.biases, &self.bias_grad_1, &self.layer_1.biases);
-
-        brainz.ops.sub(f32, &self.layer_2.weights, &self.weight_grad_2_f, &self.layer_2.weights);
-        brainz.ops.sub(f32, &self.layer_2.biases, &self.bias_grad_2, &self.layer_2.biases);
+        brainz.ops.sub(f32, &self.layer_2.weights, &self.weight_grad_2_f, &self.layer_2.weights, .{ .alpha = lr * 0.1 });
+        brainz.ops.sub(f32, &self.layer_2.biases, &self.bias_grad_2, &self.layer_2.biases, .{ .alpha = lr * 0.1 });
     }
 
     pub fn init(self: *@This(), alloc: Allocator) !void {

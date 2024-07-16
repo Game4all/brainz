@@ -63,15 +63,10 @@ pub fn main() !void {
         brainz.ops.reduce(f32, .Sum, &dense.grad, 0, &bias_grad_summed);
         brainz.ops.reduce(f32, .Sum, &weights_grad, 0, &weights_grad_summed);
 
-        // average the summed batched gradients
-        // and scale them by the learning rate (0.05)
-        brainz.ops.mulScalar(f32, &bias_grad_summed, 0.05 * 0.25, &bias_grad_summed);
-        brainz.ops.mulScalar(f32, &weights_grad_summed, 0.05 * 0.25, &weights_grad_summed);
-
         // update the weights
-        brainz.ops.sub(f32, &dense.weights, &weights_grad_summed, &dense.weights); // Wnew = Wold - Wgrad;
+        brainz.ops.sub(f32, &dense.weights, &weights_grad_summed, &dense.weights, .{ .alpha = 0.05 * 0.25 }); // Wnew = Wold - Wgrad;
         // update the bias
-        brainz.ops.sub(f32, &dense.biases, &bias_grad_summed, &dense.biases); // Bnew = Bold - grad;
+        brainz.ops.sub(f32, &dense.biases, &bias_grad_summed, &dense.biases, .{ .alpha = 0.05 * 0.25 }); // Bnew = Bold - grad;
 
         try out.print("\rloss: {}                   ", .{loss_val});
     }

@@ -29,7 +29,7 @@ fn mse_loss(input: *const Tensor(f32), target: *const Tensor(f32)) f32 {
 }
 
 fn mse_derivative(in: *const Tensor(f32), target: *const Tensor(f32), result: *Tensor(f32)) void {
-    ops.sub(f32, in, target, result);
+    ops.sub(f32, in, target, result, .{});
     return;
 }
 
@@ -73,5 +73,5 @@ fn cce_loss(input: *const Tensor(f32), target: *const Tensor(f32)) f32 {
 }
 
 fn cce_derivative(in: *const Tensor(f32), target: *const Tensor(f32), result: *Tensor(f32)) void {
-    ops.sub(f32, in, target, result);
+    ops.sub(f32, in, target, result, .{});
 }
