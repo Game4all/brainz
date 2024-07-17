@@ -15,6 +15,7 @@ pub const Op = enum {
     Reduce,
     Transpose,
     Cast,
+    ArgMax,
 
     // activations
     Sigmoid,
@@ -62,7 +63,7 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: 
         },
         inline .Cast, .Exp, .Log, .MulScalar, .Sigmoid, .SigmoidBackprop, .ReLu, .ReLuBackprop, .SiLu, .SiLuBackprop => return shape1, //same shape as the input
         inline .Sum => .{ 1, 1, 1 }, // outputs a scalar
-        inline .Reduce => {
+        inline .Reduce, .ArgMax => {
             const axis_idx = switch (@typeInfo(@TypeOf(shape2))) {
                 .ComptimeInt => shape2,
                 else => @compileError("Expected an integer for shape2."),
@@ -310,6 +311,44 @@ pub fn cast(comptime in_ty: type, comptime out_ty: type, in: *const Tensor(in_ty
                 else => @compileError("Unsupported target type for tensor typecasting"),
             },
             else => @compileError("Unsupported source type for tensor typecasting"),
+        }
+    }
+}
+
+//todo: merge this with reduce?
+/// Stores the indices of the maximum values of operand tensor along the specified dimension in the result tensor.
+pub fn argmax(comptime ty: type, in: *const Tensor(ty), comptime axis: usize, result: *Tensor(usize)) void {
+    const axes: struct { usize, usize, usize } = switch (axis) {
+        0 => .{ 1, 2, 0 },
+        1 => .{ 0, 2, 1 },
+        2 => .{ 0, 1, 2 },
+        else => unreachable,
+    };
+
+    for (0..@max(result.shape[axes[0]], 1)) |i| {
+        for (0..@max(result.shape[axes[1]], 1)) |j| {
+            var maximum: ty = 0;
+            var max_index: usize = 0;
+
+            for (0..@max(in.shape[axes[2]], 1)) |k| {
+                var index: struct { usize, usize, usize } = .{ 0, 0, 0 };
+                index[axes[0]] = i;
+                index[axes[1]] = j;
+                index[axes[2]] = k;
+
+                const val = in.get(index);
+                if (val > maximum) {
+                    max_index = k;
+                    maximum = val;
+                }
+            }
+
+            var a: struct { usize, usize, usize } = .{ 0, 0, 0 };
+            a[axes[0]] = i;
+            a[axes[1]] = j;
+            a[axes[2]] = 0;
+
+            result.set(a, max_index);
         }
     }
 }
@@ -616,4 +655,18 @@ test "tensor casting" {
 
     for (mat2.constSlice(), 0..) |value, i|
         try std.testing.expectEqual(@as(u8, @intCast(i)), value);
+}
+
+test "tensor argmax" {
+    var mat1 = try Tensor(f32).init(.{ 0, 16, 1 }, std.testing.allocator);
+    defer mat1.deinit(std.testing.allocator);
+
+    for (0..mat1.shape.@"1") |i|
+        mat1.set(.{ 0, i, 0 }, @floatFromInt(i));
+
+    var res = try Tensor(usize).init(.{ 0, 0, 1 }, std.testing.allocator);
+    defer res.deinit(std.testing.allocator);
+
+    argmax(f32, &mat1, 1, &res);
+    try std.testing.expectEqual(res.get(.{ 0, 0, 0 }), 15);
 }
