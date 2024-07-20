@@ -16,6 +16,7 @@ pub const Op = enum {
     Transpose,
     Cast,
     ArgMax,
+    ElementWiseEq,
 
     // activations
     Sigmoid,
@@ -30,7 +31,7 @@ pub const Op = enum {
 /// Returns an error if the two operand dimensions aren't compatible with each other for the specified operation.
 pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: anytype) error{ IncompatibleShapes, RequiresTwoShapes, InvalidAxis }!struct { usize, usize, usize } {
     switch (op) {
-        inline .Add, .Sub, .Div, .Mul => {
+        inline .Add, .Sub, .Div, .Mul, .ElementWiseEq => {
             return switch (@typeInfo(@TypeOf(shape2))) {
                 .Struct => try broadcastShape(shape1, shape2),
                 else => @compileError("Expected a shape for shape2."),
@@ -353,6 +354,29 @@ pub fn argmax(comptime ty: type, in: *const Tensor(ty), comptime axis: usize, re
     }
 }
 
+/// Performs element-wise equality comparision on two tensors.
+/// Stores 1 or 0 in the result tensor.
+pub fn elementWiseEq(comptime ty: type, arg1: *const Tensor(ty), arg2: *const Tensor(ty), result: *Tensor(ty)) void {
+    return opBinaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype, b: anytype) @Vector(vectorSize, ty) {
+            const ones: @Vector(vectorSize, ty) = @splat(1);
+            const zeroes: @Vector(vectorSize, ty) = @splat(0);
+
+            const equality: @Vector(vectorSize, bool) = a == b;
+
+            return @select(ty, equality, ones, zeroes);
+        }
+
+        pub inline fn scalar_func(_: anytype, a: anytype, b: anytype) ty {
+            if (a == b) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+    }, .{}, arg1, arg2, result);
+}
+
 // ========== Activation functions as operations ======================
 
 /// Sigmoid activation.
@@ -669,4 +693,24 @@ test "tensor argmax" {
 
     argmax(f32, &mat1, 1, &res);
     try std.testing.expectEqual(res.get(.{ 0, 0, 0 }), 15);
+}
+
+test "tensor element wise equal" {
+    var mat1 = try Tensor(f32).init(.{ 0, 0, 8 }, std.testing.allocator);
+    defer mat1.deinit(std.testing.allocator);
+
+    for (0..mat1.shape.@"1") |i|
+        mat1.set(.{ 0, 0, i }, @floatFromInt(i));
+
+    var mat2 = try Tensor(f32).init(mat1.shape, std.testing.allocator);
+    defer mat2.deinit(std.testing.allocator);
+    @memcpy(mat2.slice(), mat1.constSlice());
+    mat2.set(.{ 0, 0, 3 }, 0.0);
+
+    var res = try Tensor(f32).init(mat1.shape, std.testing.allocator);
+    defer res.deinit(std.testing.allocator);
+    elementWiseEq(f32, &mat1, &mat2, &res);
+
+    const result = &[_]f32{ 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0 };
+    try std.testing.expectEqualSlices(f32, @constCast(result), res.constSlice());
 }
