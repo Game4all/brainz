@@ -550,7 +550,7 @@ fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat
     if (mat1.isContiguous() and mat2.isContiguous() and result.isContiguous() and canDoBatching(mat1.shape, mat2.shape) and canDoBatching(mat2.shape, result.shape)) {
         opBinaryImplBatched(ty, op_funcs, ctx, mat1, mat2, result);
     } else {
-        opBinaryImplBroadcast(f32, op_funcs.scalar_func, ctx, mat1, mat2, result);
+        opBinaryImplBroadcast(ty, op_funcs.scalar_func, ctx, mat1, mat2, result);
     }
 }
 
