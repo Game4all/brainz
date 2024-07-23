@@ -129,15 +129,23 @@ pub fn matMul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty
 pub fn mulScalar(comptime ty: type, mat1: *const Tensor(ty), scalar: ty, result: *Tensor(ty)) void {
     std.debug.assert(std.meta.eql(mat1.shape, result.shape));
 
+    // intermediate type used for encoding the scalar value
+    const encScalarType = if (@sizeOf(ty) > @sizeOf(u32)) u64 else u32;
+    const encoded_scalar_pointer: *anyopaque = @ptrFromInt(@as(encScalarType, @bitCast(scalar)));
+
     return opUnaryImpl(ty, struct {
-        pub inline fn simd_func(comptime vectorSize: comptime_int, ctx: anytype, a: anytype) @Vector(vectorSize, ty) {
-            return @as(@Vector(vectorSize, ty), @splat(ctx.@"0")) * a;
+        pub inline fn simd_func(comptime vectorSize: comptime_int, ctx: *anyopaque, a: anytype) @Vector(vectorSize, ty) {
+            const alpha: ty = @bitCast(@as(encScalarType, @intCast(@intFromPtr(ctx))));
+
+            return @as(@Vector(vectorSize, ty), @splat(alpha)) * a;
         }
 
-        pub inline fn scalar_func(ctx: anytype, a: anytype) ty {
-            return ctx.@"0" * a;
+        pub inline fn scalar_func(ctx: *anyopaque, a: anytype) ty {
+            const alpha: ty = @bitCast(@as(encScalarType, @intCast(@intFromPtr(ctx))));
+
+            return alpha * a;
         }
-    }, .{scalar}, mat1, result);
+    }, encoded_scalar_pointer, mat1, result);
 }
 
 /// Performs substraction of two tensors.
@@ -146,16 +154,21 @@ pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
+    const encScalarType = if (@sizeOf(ty) > @sizeOf(u32)) u64 else u32;
+    const encoded_scalar_pointer: *anyopaque = @ptrFromInt(@as(encScalarType, @bitCast(args.alpha)));
+
     return opBinaryImpl(ty, struct {
-        pub inline fn simd_func(comptime vectorSize: comptime_int, ctx: anytype, a: anytype, b: anytype) @Vector(vectorSize, ty) {
-            const scaler: @Vector(vectorSize, ty) = @splat(ctx.alpha);
+        pub inline fn simd_func(comptime vectorSize: comptime_int, ctx: *anyopaque, a: anytype, b: anytype) @Vector(vectorSize, ty) {
+            const alpha: ty = @bitCast(@as(encScalarType, @intCast(@intFromPtr(ctx))));
+            const scaler: @Vector(vectorSize, ty) = @splat(alpha);
             return a - scaler * b;
         }
 
-        pub inline fn scalar_func(ctx: anytype, a: anytype, b: anytype) ty {
-            return a - ctx.alpha * b;
+        pub inline fn scalar_func(ctx: *anyopaque, a: anytype, b: anytype) ty {
+            const alpha: ty = @bitCast(@as(encScalarType, @intCast(@intFromPtr(ctx))));
+            return a - alpha * b;
         }
-    }, args, mat1, mat2, result);
+    }, encoded_scalar_pointer, mat1, mat2, result);
 }
 
 /// Performs element-wise multiplication of two tensors (aka the hadamard product).
@@ -172,7 +185,7 @@ pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
         pub inline fn scalar_func(_: anytype, a: anytype, b: anytype) ty {
             return a * b;
         }
-    }, .{}, mat1, mat2, result);
+    }, undefined, mat1, mat2, result);
 }
 
 /// Performs the addition of two tensors
@@ -182,16 +195,21 @@ pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
+    const encScalarType = if (@sizeOf(ty) > @sizeOf(u32)) u64 else u32;
+    const encoded_scalar_pointer: *anyopaque = @ptrFromInt(@as(encScalarType, @bitCast(args.alpha)));
+
     return opBinaryImpl(ty, struct {
-        pub inline fn simd_func(comptime vectorSize: comptime_int, ctx: anytype, a: anytype, b: anytype) @Vector(vectorSize, ty) {
-            const scaler: @Vector(vectorSize, ty) = @splat(ctx.alpha);
+        pub inline fn simd_func(comptime vectorSize: comptime_int, ctx: *anyopaque, a: anytype, b: anytype) @Vector(vectorSize, ty) {
+            const alpha: ty = @bitCast(@as(encScalarType, @intCast(@intFromPtr(ctx))));
+            const scaler: @Vector(vectorSize, ty) = @splat(alpha);
             return a + scaler * b;
         }
 
         pub inline fn scalar_func(ctx: anytype, a: anytype, b: anytype) ty {
-            return a + ctx.alpha * b;
+            const alpha: ty = @bitCast(@as(encScalarType, @intCast(@intFromPtr(ctx))));
+            return a + alpha * b;
         }
-    }, args, mat1, mat2, result);
+    }, encoded_scalar_pointer, mat1, mat2, result);
 }
 
 /// Performs the division of a tensor by another.
@@ -208,7 +226,7 @@ pub fn div(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
         pub inline fn scalar_func(_: anytype, a: anytype, b: anytype) ty {
             return a / b;
         }
-    }, mat1, mat2, result);
+    }, undefined, mat1, mat2, result);
 }
 
 /// Performs exponentiation on the specified tensor.
@@ -223,7 +241,7 @@ pub fn exp(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return @exp(a);
         }
-    }, .{}, mat1, result);
+    }, undefined, mat1, result);
 }
 
 /// Performs log()
@@ -238,7 +256,7 @@ pub fn log(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return @log(a);
         }
-    }, .{}, mat1, result);
+    }, undefined, mat1, result);
 }
 
 /// Sums the values of the tensor.
@@ -375,7 +393,7 @@ pub fn elementWiseEq(comptime ty: type, arg1: *const Tensor(ty), arg2: *const Te
                 return 0;
             }
         }
-    }, .{}, arg1, arg2, result);
+    }, undefined, arg1, arg2, result);
 }
 
 // ========== Activation functions as operations ======================
@@ -391,7 +409,7 @@ pub fn sigmoid(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) 
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return 1 / (1 + std.math.exp(-a));
         }
-    }, .{}, mat1, result);
+    }, undefined, mat1, result);
 }
 
 /// Sigmoid activation backpropagation.
@@ -407,7 +425,7 @@ pub fn sigmoidBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tens
             const s = 1 / (1 + std.math.exp(-a));
             return s - (s * s);
         }
-    }, .{}, mat1, result);
+    }, undefined, mat1, result);
 }
 
 /// ReLu activation.
@@ -420,7 +438,7 @@ pub fn relu(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) voi
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return @max(a, 0);
         }
-    }, .{}, mat1, result);
+    }, undefined, mat1, result);
 }
 
 /// ReLu activation backpropagation.
@@ -433,7 +451,7 @@ pub fn reluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return @max(std.math.sign(a), 0);
         }
-    }, .{}, mat1, result);
+    }, undefined, mat1, result);
 }
 
 /// SiLu activation aka sigmoid linear unit.
@@ -447,7 +465,7 @@ pub fn silu(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) voi
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return a / (1 + std.math.exp(-a));
         }
-    }, .{}, mat1, result);
+    }, undefined, mat1, result);
 }
 
 /// SiLu derivative.
@@ -464,17 +482,17 @@ pub fn siluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(
             const s = 1 / (1 + std.math.exp(-a));
             return s * (1 + a * (1 - s));
         }
-    }, .{}, mat1, result);
+    }, undefined, mat1, result);
 }
 
 // ================== Unary op implementation ================================
 
-fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     for (0..@max(1, result.shape.@"0")) |b|
-        opUnaryImplDispatch(ty, op_funcs, ctx, mat1, result, b);
+        opUnaryImplDispatch(ty, op_funcs, userptr, mat1, result, b);
 }
 
-fn opUnaryImplDispatch(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), result: *Tensor(ty), b: usize) void {
+fn opUnaryImplDispatch(comptime ty: type, comptime op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(ty), result: *Tensor(ty), b: usize) void {
     const arg_1 = mat1.constSlice();
     const res = result.slice();
 
@@ -489,7 +507,7 @@ fn opUnaryImplDispatch(comptime ty: type, comptime op_funcs: anytype, ctx: anyty
             while (pos < maxVecIndex) : (pos += vectorSize) {
                 const arg1_i = b * batchStride + pos;
                 const vec_1: @Vector(vectorSize, ty) = arg_1[arg1_i..][0..vectorSize].*;
-                const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, ctx, vec_1);
+                const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, userptr, vec_1);
                 res[arg1_i..][0..vectorSize].* = res_vec;
             }
 
@@ -499,24 +517,24 @@ fn opUnaryImplDispatch(comptime ty: type, comptime op_funcs: anytype, ctx: anyty
 
     // processing the remaining elements which can't be vectorized.
     for (pos..batchStride) |i|
-        res[b * batchStride + i] = op_funcs.scalar_func(ctx, arg_1[b * batchStride + i]);
+        res[b * batchStride + i] = op_funcs.scalar_func(userptr, arg_1[b * batchStride + i]);
 }
 
 /// Scalar operation dispatch implementation.
 /// Slow.
-fn opBinaryImplScalarDispatch(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), i: usize) void {
+fn opBinaryImplScalarDispatch(comptime ty: type, comptime op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), i: usize) void {
     for (0..@max(result.shape[1], 1)) |j| {
         for (0..@max(result.shape[2], 1)) |k| {
             const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
             const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
-            result.set(.{ i, j, k }, op_funcs.scalar_func(ctx, a, b));
+            result.set(.{ i, j, k }, op_funcs.scalar_func(userptr, a, b));
         }
     }
 }
 
 /// Fast-path operation dispatch implementation.
 /// Uses SIMD for speed
-fn opBinaryImplSimdDispatch(comptime ty: type, op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), b: usize) void {
+fn opBinaryImplSimdDispatch(comptime ty: type, op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), b: usize) void {
     const arg_1 = mat1.constSlice();
     const arg_2 = mat2.constSlice();
     const res = result.slice();
@@ -534,7 +552,7 @@ fn opBinaryImplSimdDispatch(comptime ty: type, op_funcs: anytype, ctx: anytype, 
 
             const vec_1: @Vector(vectorSize, ty) = arg_1[arg1_i..][0..vectorSize].*;
             const vec_2: @Vector(vectorSize, ty) = arg_2[arg2_i..][0..vectorSize].*;
-            const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, ctx, vec_1, vec_2);
+            const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, userptr, vec_1, vec_2);
 
             res[(b * batchStride + pos)..][0..vectorSize].* = res_vec;
         }
@@ -545,20 +563,20 @@ fn opBinaryImplSimdDispatch(comptime ty: type, op_funcs: anytype, ctx: anytype, 
     for (pos..batchStride) |i| {
         const arg1_i = (b % @max(mat1.shape.@"0", 1)) * batchStride + i;
         const arg2_i = (b % @max(mat2.shape.@"0", 1)) * batchStride + i;
-        res[b * batchStride + i] = op_funcs.scalar_func(ctx, arg_1[arg1_i], arg_2[arg2_i]);
+        res[b * batchStride + i] = op_funcs.scalar_func(userptr, arg_1[arg1_i], arg_2[arg2_i]);
     }
 }
 
 /// Performs various shape and stride checks on the operand and result tensors to select the most adapted operation implementation and dispatches it.
 /// - If the mat1 or mat2 or result tensors have different shapes, or aren't contiguous in memory, use the broadcasting impl (slow)
 /// - If all shapes are equal and tensors are contiguous, use the SIMD impl (faster)
-fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, userpointer: *anyopaque, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     if (mat1.isContiguous() and mat2.isContiguous() and result.isContiguous() and canDoSimd(mat1.shape, mat2.shape) and canDoSimd(mat2.shape, result.shape)) {
         for (0..@max(1, result.shape.@"0")) |b|
-            opBinaryImplSimdDispatch(ty, op_funcs, ctx, mat1, mat2, result, b);
+            opBinaryImplSimdDispatch(ty, op_funcs, userpointer, mat1, mat2, result, b);
     } else {
         for (0..@max(1, result.shape.@"0")) |b|
-            opBinaryImplScalarDispatch(ty, op_funcs, ctx, mat1, mat2, result, b);
+            opBinaryImplScalarDispatch(ty, op_funcs, userpointer, mat1, mat2, result, b);
     }
 }
 
