@@ -1,5 +1,6 @@
 ///! Represents a logical device capable of dispatching compute operations
 const std = @import("std");
+const Self = @This();
 
 ptr: *anyopaque,
 vtable: *const VTable,
@@ -42,4 +43,34 @@ pub const Dispatch = struct {
     n_i: usize = 0,
     /// Arguments of this computation.
     args: [4]*anyopaque = undefined,
+};
+
+/// A dummy device implementation
+pub const DummyDevice = blk: {
+    const vtable = struct {
+        fn dispatch(_: *anyopaque, work: Dispatch) !void {
+            work.func(&work);
+        }
+
+        fn dispatchChunks(_: *anyopaque, work: Dispatch, num_pieces: usize) !void {
+            for (0..num_pieces) |i| {
+                var item = work;
+                item.n_i = i;
+                item.n_chunks = num_pieces;
+
+                item.func(&item);
+            }
+        }
+
+        fn barrier(_: *anyopaque) !void {}
+    };
+
+    break :blk Self{
+        .ptr = undefined,
+        .vtable = .{
+            .dispatch = &vtable.dispatch,
+            .dispatchChunks = &vtable.dispatchChunks,
+            .barrier = &vtable.barrier,
+        },
+    };
 };
