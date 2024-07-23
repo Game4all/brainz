@@ -1,5 +1,6 @@
 const std = @import("std");
 const Tensor = @import("tensor.zig").Tensor;
+const Device = @import("device/Device.zig");
 
 /// A list of available operations.
 pub const Op = enum {
@@ -469,19 +470,27 @@ pub fn siluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(
 // ================== Unary op implementation ================================
 
 fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+    for (0..@max(1, result.shape.@"0")) |b|
+        opUnaryImplDispatch(ty, op_funcs, ctx, mat1, result, b);
+}
+
+fn opUnaryImplDispatch(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), result: *Tensor(ty), b: usize) void {
     const arg_1 = mat1.constSlice();
     const res = result.slice();
+
+    const batchStride = result.strides.@"0";
 
     var pos: usize = 0;
 
     if (@hasDecl(op_funcs, "simd_func")) {
         if (std.simd.suggestVectorLength(ty)) |vectorSize| {
-            const maxVecIndex = (res.len / vectorSize) * vectorSize;
+            const maxVecIndex = (batchStride / vectorSize) * vectorSize;
 
             while (pos < maxVecIndex) : (pos += vectorSize) {
-                const vec_1: @Vector(vectorSize, ty) = arg_1[pos..][0..vectorSize].*;
+                const arg1_i = b * batchStride + pos;
+                const vec_1: @Vector(vectorSize, ty) = arg_1[arg1_i..][0..vectorSize].*;
                 const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, ctx, vec_1);
-                res[pos..][0..vectorSize].* = res_vec;
+                res[arg1_i..][0..vectorSize].* = res_vec;
             }
 
             pos = maxVecIndex;
@@ -489,74 +498,73 @@ fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1
     }
 
     // processing the remaining elements which can't be vectorized.
-    for (pos..res.len) |i|
-        res[i] = op_funcs.scalar_func(ctx, arg_1[i]);
+    for (pos..batchStride) |i|
+        res[b * batchStride + i] = op_funcs.scalar_func(ctx, arg_1[b * batchStride + i]);
 }
 
-/// Fallback path implementation for non contiguous tensor binary op
-fn opBinaryImplBroadcast(comptime ty: type, comptime fallback_func: fn (anytype, anytype, anytype) callconv(.Inline) ty, ctx: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
-    for (0..@max(result.shape[0], 1)) |i| {
-        for (0..@max(result.shape[1], 1)) |j| {
-            for (0..@max(result.shape[2], 1)) |k| {
-                const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
-                const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
-                result.set(.{ i, j, k }, fallback_func(ctx, a, b));
-            }
+/// Scalar operation dispatch implementation.
+/// Slow.
+fn opBinaryImplScalarDispatch(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), i: usize) void {
+    for (0..@max(result.shape[1], 1)) |j| {
+        for (0..@max(result.shape[2], 1)) |k| {
+            const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
+            const b = mat2.get(.{ i % @max(mat2.shape[0], 1), j % @max(mat2.shape[1], 1), k % @max(mat2.shape[2], 1) });
+            result.set(.{ i, j, k }, op_funcs.scalar_func(ctx, a, b));
         }
     }
 }
 
-/// Fast-path for batched tensor (broadcasting on batch dimension) binary op.
-/// Assumes both tensors have matching dimensions and are contiguous on all non-batch dimensions.
-fn opBinaryImplBatched(comptime ty: type, op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+/// Fast-path operation dispatch implementation.
+/// Uses SIMD for speed
+fn opBinaryImplSimdDispatch(comptime ty: type, op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), b: usize) void {
     const arg_1 = mat1.constSlice();
     const arg_2 = mat2.constSlice();
     const res = result.slice();
 
     const batchStride = result.strides.@"0";
 
-    for (0..@max(result.shape[0], 1)) |b| {
-        var pos: usize = 0;
+    var pos: usize = 0;
 
-        if (std.simd.suggestVectorLength(ty)) |vectorSize| {
-            const maxVecIndex = (batchStride / vectorSize) * vectorSize;
+    if (std.simd.suggestVectorLength(ty)) |vectorSize| {
+        const maxVecIndex = (batchStride / vectorSize) * vectorSize;
 
-            while (pos < maxVecIndex) : (pos += vectorSize) {
-                const arg1_i = (b % @max(mat1.shape.@"0", 1)) * batchStride + pos;
-                const arg2_i = (b % @max(mat2.shape.@"0", 1)) * batchStride + pos;
+        while (pos < maxVecIndex) : (pos += vectorSize) {
+            const arg1_i = (b % @max(mat1.shape.@"0", 1)) * batchStride + pos;
+            const arg2_i = (b % @max(mat2.shape.@"0", 1)) * batchStride + pos;
 
-                const vec_1: @Vector(vectorSize, ty) = arg_1[arg1_i..][0..vectorSize].*;
-                const vec_2: @Vector(vectorSize, ty) = arg_2[arg2_i..][0..vectorSize].*;
-                const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, ctx, vec_1, vec_2);
+            const vec_1: @Vector(vectorSize, ty) = arg_1[arg1_i..][0..vectorSize].*;
+            const vec_2: @Vector(vectorSize, ty) = arg_2[arg2_i..][0..vectorSize].*;
+            const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, ctx, vec_1, vec_2);
 
-                res[(b * batchStride + pos)..][0..vectorSize].* = res_vec;
-            }
-
-            pos = maxVecIndex;
+            res[(b * batchStride + pos)..][0..vectorSize].* = res_vec;
         }
 
-        for (pos..batchStride) |i| {
-            const arg1_i = (b % @max(mat1.shape.@"0", 1)) * batchStride + i;
-            const arg2_i = (b % @max(mat2.shape.@"0", 1)) * batchStride + i;
-            res[b * batchStride + i] = op_funcs.scalar_func(ctx, arg_1[arg1_i], arg_2[arg2_i]);
-        }
+        pos = maxVecIndex;
+    }
+
+    for (pos..batchStride) |i| {
+        const arg1_i = (b % @max(mat1.shape.@"0", 1)) * batchStride + i;
+        const arg2_i = (b % @max(mat2.shape.@"0", 1)) * batchStride + i;
+        res[b * batchStride + i] = op_funcs.scalar_func(ctx, arg_1[arg1_i], arg_2[arg2_i]);
     }
 }
 
-/// Performs various shape and stride checks on the operand and result tensors to select the most adapted operation implementation.
+/// Performs various shape and stride checks on the operand and result tensors to select the most adapted operation implementation and dispatches it.
 /// - If the mat1 or mat2 or result tensors have different shapes, or aren't contiguous in memory, use the broadcasting impl (slow)
 /// - If all shapes are equal and tensors are contiguous, use the SIMD impl (faster)
 fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, ctx: anytype, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
-    if (mat1.isContiguous() and mat2.isContiguous() and result.isContiguous() and canDoBatching(mat1.shape, mat2.shape) and canDoBatching(mat2.shape, result.shape)) {
-        opBinaryImplBatched(ty, op_funcs, ctx, mat1, mat2, result);
+    if (mat1.isContiguous() and mat2.isContiguous() and result.isContiguous() and canDoSimd(mat1.shape, mat2.shape) and canDoSimd(mat2.shape, result.shape)) {
+        for (0..@max(1, result.shape.@"0")) |b|
+            opBinaryImplSimdDispatch(ty, op_funcs, ctx, mat1, mat2, result, b);
     } else {
-        opBinaryImplBroadcast(ty, op_funcs.scalar_func, ctx, mat1, mat2, result);
+        for (0..@max(1, result.shape.@"0")) |b|
+            opBinaryImplScalarDispatch(ty, op_funcs, ctx, mat1, mat2, result, b);
     }
 }
 
 // Check if two shapes have matching dimensions except for the batch dimensions
 // Enables SIMD operations for batch computation if true.
-inline fn canDoBatching(shape1: struct { usize, usize, usize }, shape2: struct { usize, usize, usize }) bool {
+inline fn canDoSimd(shape1: struct { usize, usize, usize }, shape2: struct { usize, usize, usize }) bool {
     comptime var i = 2;
     inline while (i > 0) : (i -= 1) {
         if (shape1[i] != shape2[i])

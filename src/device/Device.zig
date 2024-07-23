@@ -67,7 +67,7 @@ pub const DummyDevice = blk: {
 
     break :blk Self{
         .ptr = undefined,
-        .vtable = .{
+        .vtable = &.{
             .dispatch = &vtable.dispatch,
             .dispatchChunks = &vtable.dispatchChunks,
             .barrier = &vtable.barrier,
