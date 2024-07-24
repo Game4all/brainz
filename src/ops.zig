@@ -145,7 +145,7 @@ pub fn mulScalar(comptime ty: type, mat1: *const Tensor(ty), scalar: ty, result:
 
             return alpha * a;
         }
-    }, encoded_scalar_pointer, mat1, result);
+    }, Device.DummyDevice, encoded_scalar_pointer, mat1, result);
 }
 
 /// Performs substraction of two tensors.
@@ -168,7 +168,7 @@ pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
             const alpha: ty = @bitCast(@as(encScalarType, @intCast(@intFromPtr(ctx))));
             return a - alpha * b;
         }
-    }, encoded_scalar_pointer, mat1, mat2, result);
+    }, Device.DummyDevice, encoded_scalar_pointer, mat1, mat2, result);
 }
 
 /// Performs element-wise multiplication of two tensors (aka the hadamard product).
@@ -185,7 +185,7 @@ pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
         pub inline fn scalar_func(_: anytype, a: anytype, b: anytype) ty {
             return a * b;
         }
-    }, undefined, mat1, mat2, result);
+    }, Device.DummyDevice, undefined, mat1, mat2, result);
 }
 
 /// Performs the addition of two tensors
@@ -209,7 +209,7 @@ pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
             const alpha: ty = @bitCast(@as(encScalarType, @intCast(@intFromPtr(ctx))));
             return a + alpha * b;
         }
-    }, encoded_scalar_pointer, mat1, mat2, result);
+    }, Device.DummyDevice, encoded_scalar_pointer, mat1, mat2, result);
 }
 
 /// Performs the division of a tensor by another.
@@ -241,7 +241,7 @@ pub fn exp(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return @exp(a);
         }
-    }, undefined, mat1, result);
+    }, Device.DummyDevice, undefined, mat1, result);
 }
 
 /// Performs log()
@@ -393,7 +393,7 @@ pub fn elementWiseEq(comptime ty: type, arg1: *const Tensor(ty), arg2: *const Te
                 return 0;
             }
         }
-    }, undefined, arg1, arg2, result);
+    }, Device.DummyDevice, undefined, arg1, arg2, result);
 }
 
 // ========== Activation functions as operations ======================
@@ -409,36 +409,36 @@ pub fn sigmoid(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) 
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return 1 / (1 + std.math.exp(-a));
         }
-    }, undefined, mat1, result);
+    }, Device.DummyDevice, undefined, mat1, result);
 }
 
 /// Sigmoid activation backpropagation.
 pub fn sigmoidBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
-        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: *anyopaque, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
             const s = ones / (ones + std.math.exp(-a));
             return s - (s * s);
         }
 
-        pub inline fn scalar_func(_: anytype, a: anytype) ty {
+        pub inline fn scalar_func(_: *anyopaque, a: anytype) ty {
             const s = 1 / (1 + std.math.exp(-a));
             return s - (s * s);
         }
-    }, undefined, mat1, result);
+    }, Device.DummyDevice, undefined, mat1, result);
 }
 
 /// ReLu activation.
 pub fn relu(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
-        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: *anyopaque, a: anytype) @Vector(vectorSize, ty) {
             return @max(a, @as(@Vector(vectorSize, ty), @splat(0)));
         }
 
-        pub inline fn scalar_func(_: anytype, a: anytype) ty {
+        pub inline fn scalar_func(_: *anyopaque, a: anytype) ty {
             return @max(a, 0);
         }
-    }, undefined, mat1, result);
+    }, Device.DummyDevice, undefined, mat1, result);
 }
 
 /// ReLu activation backpropagation.
@@ -451,7 +451,7 @@ pub fn reluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return @max(std.math.sign(a), 0);
         }
-    }, undefined, mat1, result);
+    }, Device.DummyDevice, undefined, mat1, result);
 }
 
 /// SiLu activation aka sigmoid linear unit.
@@ -487,12 +487,27 @@ pub fn siluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(
 
 // ================== Unary op implementation ================================
 
-fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
-    for (0..@max(1, result.shape.@"0")) |b|
-        opUnaryImplDispatch(ty, op_funcs, userptr, mat1, result, b);
+fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, device: Device, userptr: *anyopaque, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+    const dispatch_fn = (struct {
+        pub fn dispatch_fn(dispatch: *const Device.Dispatch) void {
+            const arg_1: *const Tensor(ty) = @alignCast(@ptrCast(dispatch.args[0]));
+            const arg_result: *Tensor(ty) = @alignCast(@ptrCast(dispatch.args[1]));
+            const usrptr: *anyopaque = dispatch.args[2];
+            const b = dispatch.n_i;
+
+            opUnaryImplDispatch(ty, op_funcs, usrptr, arg_1, arg_result, b);
+        }
+    }).dispatch_fn;
+
+    var dispatch: Device.Dispatch = .{ .func = dispatch_fn };
+    dispatch.args[0] = @constCast(@ptrCast(mat1));
+    dispatch.args[1] = @constCast(@ptrCast(result));
+    dispatch.args[2] = userptr;
+
+    device.dispatchChunks(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
 }
 
-fn opUnaryImplDispatch(comptime ty: type, comptime op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(ty), result: *Tensor(ty), b: usize) void {
+inline fn opUnaryImplDispatch(comptime ty: type, comptime op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(ty), result: *Tensor(ty), b: usize) void {
     const arg_1 = mat1.constSlice();
     const res = result.slice();
 
@@ -522,7 +537,7 @@ fn opUnaryImplDispatch(comptime ty: type, comptime op_funcs: anytype, userptr: *
 
 /// Scalar operation dispatch implementation.
 /// Slow.
-fn opBinaryImplScalarDispatch(comptime ty: type, comptime op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), i: usize) void {
+inline fn opBinaryImplScalarDispatch(comptime ty: type, comptime op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), i: usize) void {
     for (0..@max(result.shape[1], 1)) |j| {
         for (0..@max(result.shape[2], 1)) |k| {
             const a = mat1.get(.{ i % @max(mat1.shape[0], 1), j % @max(mat1.shape[1], 1), k % @max(mat1.shape[2], 1) });
@@ -534,7 +549,7 @@ fn opBinaryImplScalarDispatch(comptime ty: type, comptime op_funcs: anytype, use
 
 /// Fast-path operation dispatch implementation.
 /// Uses SIMD for speed
-fn opBinaryImplSimdDispatch(comptime ty: type, op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), b: usize) void {
+inline fn opBinaryImplSimdDispatch(comptime ty: type, op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), b: usize) void {
     const arg_1 = mat1.constSlice();
     const arg_2 = mat2.constSlice();
     const res = result.slice();
@@ -570,13 +585,47 @@ fn opBinaryImplSimdDispatch(comptime ty: type, op_funcs: anytype, userptr: *anyo
 /// Performs various shape and stride checks on the operand and result tensors to select the most adapted operation implementation and dispatches it.
 /// - If the mat1 or mat2 or result tensors have different shapes, or aren't contiguous in memory, use the broadcasting impl (slow)
 /// - If all shapes are equal and tensors are contiguous, use the SIMD impl (faster)
-fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, userpointer: *anyopaque, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, device: Device, userpointer: *anyopaque, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     if (mat1.isContiguous() and mat2.isContiguous() and result.isContiguous() and canDoSimd(mat1.shape, mat2.shape) and canDoSimd(mat2.shape, result.shape)) {
-        for (0..@max(1, result.shape.@"0")) |b|
-            opBinaryImplSimdDispatch(ty, op_funcs, userpointer, mat1, mat2, result, b);
+        const dispatch_fn = (struct {
+            pub fn dispatch_fn(arg: *const Device.Dispatch) void {
+                const arg_1: *const Tensor(ty) = @alignCast(@ptrCast(arg.args[0]));
+                const arg_2: *const Tensor(ty) = @alignCast(@ptrCast(arg.args[1]));
+                const arg_result: *Tensor(ty) = @alignCast(@ptrCast(arg.args[2]));
+                const userptr: *anyopaque = arg.args[3];
+                const b = arg.n_i;
+
+                opBinaryImplSimdDispatch(ty, op_funcs, userptr, arg_1, arg_2, arg_result, b);
+            }
+        }).dispatch_fn;
+
+        var dispatch: Device.Dispatch = .{ .func = dispatch_fn };
+        dispatch.args[0] = @constCast(@ptrCast(mat1));
+        dispatch.args[1] = @constCast(@ptrCast(mat2));
+        dispatch.args[2] = @constCast(@ptrCast(result));
+        dispatch.args[3] = @constCast(@ptrCast(userpointer));
+
+        device.dispatchChunks(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
     } else {
-        for (0..@max(1, result.shape.@"0")) |b|
-            opBinaryImplScalarDispatch(ty, op_funcs, userpointer, mat1, mat2, result, b);
+        const dispatch_fn = (struct {
+            pub fn dispatch_fn(arg: *const Device.Dispatch) void {
+                const arg_1: *const Tensor(ty) = @alignCast(@ptrCast(arg.args[0]));
+                const arg_2: *const Tensor(ty) = @alignCast(@ptrCast(arg.args[1]));
+                const arg_result: *Tensor(ty) = @alignCast(@ptrCast(arg.args[2]));
+                const userptr: *anyopaque = arg.args[3];
+                const b = arg.n_i;
+
+                opBinaryImplScalarDispatch(ty, op_funcs, userptr, arg_1, arg_2, arg_result, b);
+            }
+        }).dispatch_fn;
+
+        var dispatch: Device.Dispatch = .{ .func = dispatch_fn };
+        dispatch.args[0] = @constCast(@ptrCast(mat1));
+        dispatch.args[1] = @constCast(@ptrCast(mat2));
+        dispatch.args[2] = @constCast(@ptrCast(result));
+        dispatch.args[3] = @constCast(@ptrCast(userpointer));
+
+        device.dispatchChunks(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
     }
 }
 
