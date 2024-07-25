@@ -140,7 +140,7 @@ pub fn matMul(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: 
 }
 
 /// Performs a scalar to tensor multiplication.
-pub fn mulScalar(comptime ty: type, mat1: *const Tensor(ty), scalar: ty, result: *Tensor(ty)) void {
+pub fn mulScalar(comptime ty: type, device: Device, mat1: *const Tensor(ty), scalar: ty, result: *Tensor(ty)) void {
     std.debug.assert(std.meta.eql(mat1.shape, result.shape));
 
     // intermediate type used for encoding the scalar value
@@ -159,12 +159,12 @@ pub fn mulScalar(comptime ty: type, mat1: *const Tensor(ty), scalar: ty, result:
 
             return alpha * a;
         }
-    }, Device.DummyDevice, encoded_scalar_pointer, mat1, result);
+    }, device, encoded_scalar_pointer, mat1, result);
 }
 
 /// Performs substraction of two tensors.
 /// Supports broadcasting to a common shape.
-pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), args: struct { alpha: ty = 1 }) void {
+pub fn sub(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), args: struct { alpha: ty = 1 }) void {
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
@@ -182,12 +182,12 @@ pub fn sub(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
             const alpha: ty = @bitCast(@as(encScalarType, @intCast(@intFromPtr(ctx))));
             return a - alpha * b;
         }
-    }, Device.DummyDevice, encoded_scalar_pointer, mat1, mat2, result);
+    }, device, encoded_scalar_pointer, mat1, mat2, result);
 }
 
 /// Performs element-wise multiplication of two tensors (aka the hadamard product).
 /// Supports broadcasting to a common shape.
-pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn mul(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
@@ -199,13 +199,13 @@ pub fn mul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
         pub inline fn scalar_func(_: anytype, a: anytype, b: anytype) ty {
             return a * b;
         }
-    }, Device.DummyDevice, undefined, mat1, mat2, result);
+    }, device, undefined, mat1, mat2, result);
 }
 
 /// Performs the addition of two tensors
 /// Supports broadcasting to a common shape.
 /// Supports specifying an alpha specifier to scale the added value.
-pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), args: struct { alpha: ty = 1 }) void {
+pub fn add(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), args: struct { alpha: ty = 1 }) void {
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
@@ -223,12 +223,12 @@ pub fn add(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
             const alpha: ty = @bitCast(@as(encScalarType, @intCast(@intFromPtr(ctx))));
             return a + alpha * b;
         }
-    }, Device.DummyDevice, encoded_scalar_pointer, mat1, mat2, result);
+    }, device, encoded_scalar_pointer, mat1, mat2, result);
 }
 
 /// Performs the division of a tensor by another.
 /// Supports broadcasting to a common shape.
-pub fn div(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn div(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
@@ -240,11 +240,11 @@ pub fn div(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), 
         pub inline fn scalar_func(_: anytype, a: anytype, b: anytype) ty {
             return a / b;
         }
-    }, undefined, mat1, mat2, result);
+    }, device, undefined, mat1, mat2, result);
 }
 
 /// Performs exponentiation on the specified tensor.
-pub fn exp(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn exp(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     std.debug.assert(std.meta.eql(mat1.shape, result.shape));
 
     return opUnaryImpl(ty, struct {
@@ -255,11 +255,11 @@ pub fn exp(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return @exp(a);
         }
-    }, Device.DummyDevice, undefined, mat1, result);
+    }, device, undefined, mat1, result);
 }
 
 /// Performs log()
-pub fn log(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn log(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     std.debug.assert(std.meta.eql(mat1.shape, result.shape));
 
     return opUnaryImpl(ty, struct {
@@ -270,7 +270,7 @@ pub fn log(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return @log(a);
         }
-    }, undefined, mat1, result);
+    }, device, undefined, mat1, result);
 }
 
 /// Sums the values of the tensor.
@@ -389,7 +389,7 @@ pub fn argmax(comptime ty: type, in: *const Tensor(ty), comptime axis: usize, re
 
 /// Performs element-wise equality comparision on two tensors.
 /// Stores 1 or 0 in the result tensor.
-pub fn elementWiseEq(comptime ty: type, arg1: *const Tensor(ty), arg2: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn elementWiseEq(comptime ty: type, device: Device, arg1: *const Tensor(ty), arg2: *const Tensor(ty), result: *Tensor(ty)) void {
     return opBinaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype, b: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
@@ -407,13 +407,13 @@ pub fn elementWiseEq(comptime ty: type, arg1: *const Tensor(ty), arg2: *const Te
                 return 0;
             }
         }
-    }, Device.DummyDevice, undefined, arg1, arg2, result);
+    }, device, undefined, arg1, arg2, result);
 }
 
 // ========== Activation functions as operations ======================
 
 /// Sigmoid activation.
-pub fn sigmoid(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn sigmoid(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
@@ -423,11 +423,11 @@ pub fn sigmoid(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) 
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return 1 / (1 + std.math.exp(-a));
         }
-    }, Device.DummyDevice, undefined, mat1, result);
+    }, device, undefined, mat1, result);
 }
 
 /// Sigmoid activation backpropagation.
-pub fn sigmoidBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn sigmoidBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: *anyopaque, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
@@ -439,11 +439,11 @@ pub fn sigmoidBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tens
             const s = 1 / (1 + std.math.exp(-a));
             return s - (s * s);
         }
-    }, Device.DummyDevice, undefined, mat1, result);
+    }, device, undefined, mat1, result);
 }
 
 /// ReLu activation.
-pub fn relu(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn relu(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: *anyopaque, a: anytype) @Vector(vectorSize, ty) {
             return @max(a, @as(@Vector(vectorSize, ty), @splat(0)));
@@ -452,11 +452,11 @@ pub fn relu(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) voi
         pub inline fn scalar_func(_: *anyopaque, a: anytype) ty {
             return @max(a, 0);
         }
-    }, Device.DummyDevice, undefined, mat1, result);
+    }, device, undefined, mat1, result);
 }
 
 /// ReLu activation backpropagation.
-pub fn reluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn reluBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             return @max(std.math.sign(a), @as(@Vector(vectorSize, ty), @splat(0)));
@@ -465,11 +465,11 @@ pub fn reluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return @max(std.math.sign(a), 0);
         }
-    }, Device.DummyDevice, undefined, mat1, result);
+    }, device, undefined, mat1, result);
 }
 
 /// SiLu activation aka sigmoid linear unit.
-pub fn silu(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn silu(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
@@ -479,11 +479,11 @@ pub fn silu(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) voi
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return a / (1 + std.math.exp(-a));
         }
-    }, Device.DummyDevice, undefined, mat1, result);
+    }, device, undefined, mat1, result);
 }
 
 /// SiLu derivative.
-pub fn siluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn siluBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     return opUnaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
@@ -496,7 +496,7 @@ pub fn siluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(
             const s = 1 / (1 + std.math.exp(-a));
             return s * (1 + a * (1 - s));
         }
-    }, Device.DummyDevice, undefined, mat1, result);
+    }, device, undefined, mat1, result);
 }
 
 // ================== Unary op implementation ================================
@@ -680,7 +680,7 @@ test "add op test" {
     mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 4.0 });
     mat2.setData(&[_]f32{ 2.0, 2.0 });
 
-    add(f32, &mat1, &mat2, &mat3, .{});
+    add(f32, Device.DummyDevice, &mat1, &mat2, &mat3, .{});
     try std.testing.expectEqualSlices(f32, &[_]f32{ 3.0, 4.0, 5.0, 6.0 }, mat3.constSlice());
 }
 
@@ -699,7 +699,7 @@ test "sub op test" {
     mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 4.0 });
     mat2.setData(&[_]f32{ 2.0, 2.0 });
 
-    sub(f32, &mat1, &mat2, &mat3, .{});
+    sub(f32, Device.DummyDevice, &mat1, &mat2, &mat3, .{});
     try std.testing.expectEqualSlices(f32, &[_]f32{ -1.0, 0.0, 1.0, 2.0 }, mat3.constSlice());
 }
 
@@ -718,7 +718,7 @@ test "mul op test" {
     mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 4.0 });
     mat2.setData(&[_]f32{ 2.0, 2.0 });
 
-    mul(f32, &mat1, &mat2, &mat3);
+    mul(f32, Device.DummyDevice, &mat1, &mat2, &mat3);
     try std.testing.expectEqualSlices(f32, &[_]f32{ 2.0, 4.0, 6.0, 8.0 }, mat3.constSlice());
 }
 
@@ -736,7 +736,7 @@ test "mat mul broadcasting test" {
     var mat3 = try Tensor(f32).init(.{ 3, 3, 3 }, std.testing.allocator);
     defer mat3.deinit(std.testing.allocator);
 
-    matMul(f32, &mat1, &mat2, &mat3);
+    matMul(f32, Device.DummyDevice, &mat1, &mat2, &mat3);
 }
 
 test "tensor axis sum" {
@@ -798,7 +798,7 @@ test "tensor element wise equal" {
 
     var res = try Tensor(f32).init(mat1.shape, std.testing.allocator);
     defer res.deinit(std.testing.allocator);
-    elementWiseEq(f32, &mat1, &mat2, &res);
+    elementWiseEq(f32, Device.DummyDevice, &mat1, &mat2, &res);
 
     const result = &[_]f32{ 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0 };
     try std.testing.expectEqualSlices(f32, @constCast(result), res.constSlice());

@@ -108,7 +108,7 @@ fn workerFunction(self: *Self) void {
                 const item = self.tasks.readItem() orelse unreachable;
                 self.tasks_mutex.unlock();
 
-                item.work(&item);
+                item.func(&item);
 
                 self.sync_wg.finish();
             } else {
