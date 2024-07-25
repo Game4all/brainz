@@ -4,6 +4,7 @@ const root = @import("root.zig");
 const Activation = @import("activation.zig").Activation;
 const Allocator = std.mem.Allocator;
 const Tensor = @import("tensor.zig").Tensor;
+const Device = @import("device/Device.zig");
 
 /// A layer of densely connected neurons.
 pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime batch_size: usize, comptime activation: Activation) type {
@@ -65,7 +66,7 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime batch_siz
         /// Performs forward propagation through this layer.
         pub fn forward(self: *@This(), inputs: *const Tensor(f32)) *Tensor(f32) {
             // perform linear combination
-            root.ops.matMul(f32, &self.weights, inputs, &self.last_outputs);
+            root.ops.matMul(f32, Device.DummyDevice, &self.weights, inputs, &self.last_outputs);
             root.ops.add(f32, &self.biases, &self.last_outputs, &self.last_outputs, .{});
 
             // apply activation element wise
@@ -82,7 +83,7 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime batch_siz
 
             // compute the gradient that will get passed to the layer before that one for backprop
             const w_transposed = self.weights.transpose();
-            root.ops.matMul(f32, &w_transposed, &self.grad, &self.backwards_grad);
+            root.ops.matMul(f32, Device.DummyDevice, &w_transposed, &self.grad, &self.backwards_grad);
 
             return &self.backwards_grad;
         }

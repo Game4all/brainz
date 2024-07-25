@@ -106,23 +106,37 @@ pub fn broadcastShape(shape1: struct { usize, usize, usize }, shape2: struct { u
 /// Performs a Tensor multiplication between two tensors.
 /// Supports broadcasting to a common batch dimension.
 /// Requires the two rightmost dimensions to be the number of columns and number of rows.
-pub fn matMul(comptime ty: type, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn matMul(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
     std.debug.assert(mat1.shape[2] == mat2.shape[1]);
     std.debug.assert(result.shape[1] == mat1.shape[1] and result.shape[2] == mat2.shape[2]);
     std.debug.assert(result.shape[0] == @max(mat1.shape[0], mat2.shape[0]));
 
-    for (0..@max(result.shape[0], 1)) |b| {
-        for (0..@max(result.shape[1], 1)) |i| {
-            for (0..@max(result.shape[2], 1)) |j| {
-                var s: ty = 0;
+    const dispatch_fn = (struct {
+        pub fn op(arg: *const Device.Dispatch) void {
+            const arg_1: *const Tensor(ty) = @alignCast(@ptrCast(arg.args[0]));
+            const arg_2: *const Tensor(ty) = @alignCast(@ptrCast(arg.args[1]));
+            var arg_result: *Tensor(ty) = @alignCast(@ptrCast(arg.args[2]));
+            const b = arg.n_i;
 
-                for (0..@max(mat1.shape[2], 1)) |k|
-                    s += mat1.get(.{ b % @max(mat1.shape[0], 1), i, k }) * mat2.get(.{ b % @max(mat2.shape[0], 1), k, j });
+            for (0..@max(arg_result.shape[2], 1)) |j| { //maybe parallelize more
+                for (0..@max(arg_result.shape[1], 1)) |i| {
+                    var s: ty = 0;
 
-                result.set(.{ b, i, j }, s);
+                    for (0..@max(arg_1.shape[2], 1)) |k|
+                        s += arg_1.get(.{ b % @max(arg_1.shape[0], 1), i, k }) * arg_2.get(.{ b % @max(arg_2.shape[0], 1), k, j });
+
+                    arg_result.set(.{ b, i, j }, s);
+                }
             }
         }
-    }
+    }).op;
+
+    var work: Device.Dispatch = .{ .func = dispatch_fn };
+    work.args[0] = @ptrCast(@constCast(mat1));
+    work.args[1] = @ptrCast(@constCast(mat2));
+    work.args[2] = @ptrCast(@constCast(result));
+
+    device.dispatchChunks(work, @max(1, result.shape.@"0")) catch unreachable;
 }
 
 /// Performs a scalar to tensor multiplication.
@@ -465,7 +479,7 @@ pub fn silu(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(ty)) voi
         pub inline fn scalar_func(_: anytype, a: anytype) ty {
             return a / (1 + std.math.exp(-a));
         }
-    }, undefined, mat1, result);
+    }, Device.DummyDevice, undefined, mat1, result);
 }
 
 /// SiLu derivative.
@@ -482,7 +496,7 @@ pub fn siluBackprop(comptime ty: type, mat1: *const Tensor(ty), result: *Tensor(
             const s = 1 / (1 + std.math.exp(-a));
             return s * (1 + a * (1 - s));
         }
-    }, undefined, mat1, result);
+    }, Device.DummyDevice, undefined, mat1, result);
 }
 
 // ================== Unary op implementation ================================

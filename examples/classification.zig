@@ -3,6 +3,7 @@ const std = @import("std");
 const brainz = @import("brainz");
 const Tensor = brainz.Tensor;
 const Allocator = std.mem.Allocator;
+const Device = brainz.Device;
 
 ///
 /// Binary classification example with a real dataset
@@ -128,8 +129,8 @@ const ClassificationMLP = struct {
         const layer1_inputs = ins.transpose();
 
         // compute the batched gradients wrt to the layers weights
-        brainz.ops.matMul(f32, &self.layer_1.grad, &layer1_inputs, &self.weight_grad_1);
-        brainz.ops.matMul(f32, &self.layer_2.grad, &layer2_inputs, &self.weight_grad_2);
+        brainz.ops.matMul(f32, Device.DummyDevice, &self.layer_1.grad, &layer1_inputs, &self.weight_grad_1);
+        brainz.ops.matMul(f32, Device.DummyDevice, &self.layer_2.grad, &layer2_inputs, &self.weight_grad_2);
 
         // sum the batched gradients for the weight and bias gradients
         brainz.ops.reduce(f32, .Sum, &self.weight_grad_1, 0, &self.weight_grad_1_f);

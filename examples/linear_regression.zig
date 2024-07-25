@@ -2,6 +2,7 @@ const std = @import("std");
 const brainz = @import("brainz");
 
 const Mat = brainz.Tensor;
+const Device = brainz.Device;
 
 pub fn main() !void {
     var heap = std.heap.HeapAllocator.init();
@@ -57,7 +58,7 @@ pub fn main() !void {
         _ = dense.backwards(&loss_grad);
 
         // compute the batched gradients wrt to the weights.
-        brainz.ops.matMul(f32, &dense.grad, &inputsT, &weights_grad);
+        brainz.ops.matMul(f32, Device.DummyDevice, &dense.grad, &inputsT, &weights_grad);
 
         // sum the batched gradients
         brainz.ops.reduce(f32, .Sum, &dense.grad, 0, &bias_grad_summed);
