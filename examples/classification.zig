@@ -33,7 +33,7 @@ pub fn main() !void {
     defer arena.deinit();
 
     var device: brainz.default_device = .{};
-    try device.init(arena.allocator(), 2);
+    try device.init(arena.allocator(), 3);
     defer device.deinit();
 
     var out = std.io.getStdOut().writer();
@@ -138,10 +138,10 @@ const ClassificationMLP = struct {
         device.barrier() catch unreachable;
 
         // sum the batched gradients for the weight and bias gradients
-        brainz.ops.reduce(f32, .Sum, &self.weight_grad_1, 0, &self.weight_grad_1_f);
-        brainz.ops.reduce(f32, .Sum, &self.weight_grad_2, 0, &self.weight_grad_2_f);
-        brainz.ops.reduce(f32, .Sum, &self.layer_1.grad, 0, &self.bias_grad_1);
-        brainz.ops.reduce(f32, .Sum, &self.layer_2.grad, 0, &self.bias_grad_2);
+        brainz.ops.reduce(f32, device, .Sum, &self.weight_grad_1, 0, &self.weight_grad_1_f);
+        brainz.ops.reduce(f32, device, .Sum, &self.weight_grad_2, 0, &self.weight_grad_2_f);
+        brainz.ops.reduce(f32, device, .Sum, &self.layer_1.grad, 0, &self.bias_grad_1);
+        brainz.ops.reduce(f32, device, .Sum, &self.layer_2.grad, 0, &self.bias_grad_2);
 
         device.barrier() catch unreachable;
 

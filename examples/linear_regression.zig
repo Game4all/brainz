@@ -63,8 +63,8 @@ pub fn main() !void {
         brainz.ops.matMul(f32, device, &dense.grad, &inputsT, &weights_grad);
 
         // sum the batched gradients
-        brainz.ops.reduce(f32, .Sum, &dense.grad, 0, &bias_grad_summed);
-        brainz.ops.reduce(f32, .Sum, &weights_grad, 0, &weights_grad_summed);
+        brainz.ops.reduce(f32, device, .Sum, &dense.grad, 0, &bias_grad_summed);
+        brainz.ops.reduce(f32, device, .Sum, &weights_grad, 0, &weights_grad_summed);
 
         // update the weights
         brainz.ops.sub(f32, device, &dense.weights, &weights_grad_summed, &dense.weights, .{ .alpha = 0.05 * 0.25 }); // Wnew = Wold - Wgrad;

@@ -147,7 +147,7 @@ pub fn mulScalar(comptime ty: type, device: Device, mat1: *const Tensor(ty), sca
     const encScalarType = if (@sizeOf(ty) > @sizeOf(u32)) u64 else u32;
     const encoded_scalar_pointer: *anyopaque = @ptrFromInt(@as(encScalarType, @bitCast(scalar)));
 
-    return opUnaryImpl(ty, struct {
+    return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, ctx: *anyopaque, a: anytype) @Vector(vectorSize, ty) {
             const alpha: ty = @bitCast(@as(encScalarType, @intCast(@intFromPtr(ctx))));
 
@@ -247,7 +247,7 @@ pub fn div(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *co
 pub fn exp(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
     std.debug.assert(std.meta.eql(mat1.shape, result.shape));
 
-    return opUnaryImpl(ty, struct {
+    return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             return @exp(a);
         }
@@ -288,65 +288,104 @@ pub const ReduceOp = enum {
 };
 
 /// Performs a reduction along the specified axis on the operand tensor.
-pub fn reduce(comptime ty: type, comptime op: ReduceOp, mat1: *const Tensor(ty), comptime axis: usize, result: *Tensor(ty)) void {
-    const axes: struct { usize, usize, usize } = switch (axis) {
-        0 => .{ 1, 2, 0 },
-        1 => .{ 0, 2, 1 },
-        2 => .{ 0, 1, 2 },
-        else => unreachable,
-    };
+pub fn reduce(comptime ty: type, device: Device, comptime op: ReduceOp, mat1: *const Tensor(ty), comptime axis: usize, result: *Tensor(ty)) void {
+    const dispatch_fn = (struct {
+        pub fn op_fn(arg: *const Device.Dispatch) void {
+            const arg_1: *const Tensor(ty) = @alignCast(@ptrCast(arg.args[0]));
+            const arg_result: *Tensor(ty) = @alignCast(@ptrCast(arg.args[1]));
 
-    for (0..@max(result.shape[axes[0]], 1)) |i| {
-        for (0..@max(result.shape[axes[1]], 1)) |j| {
-            var s: ty = 0;
-            for (0..@max(mat1.shape[axes[2]], 1)) |k| {
-                var index: struct { usize, usize, usize } = .{ 0, 0, 0 };
-                index[axes[0]] = i;
-                index[axes[1]] = j;
-                index[axes[2]] = k;
+            const axes: struct { usize, usize, usize } = switch (axis) {
+                0 => .{ 1, 2, 0 },
+                1 => .{ 0, 2, 1 },
+                2 => .{ 0, 1, 2 },
+                else => unreachable,
+            };
 
-                switch (op) {
-                    inline .Sum => s += mat1.get(index),
-                    inline .Product => s *= mat1.get(index),
+            for (0..@max(arg_result.shape[axes[0]], 1)) |i| {
+                for (0..@max(arg_result.shape[axes[1]], 1)) |j| {
+                    var s: ty = 0;
+                    for (0..@max(arg_1.shape[axes[2]], 1)) |k| {
+                        var index: struct { usize, usize, usize } = .{ 0, 0, 0 };
+                        index[axes[0]] = i;
+                        index[axes[1]] = j;
+                        index[axes[2]] = k;
+
+                        switch (op) {
+                            inline .Sum => s += arg_1.get(index),
+                            inline .Product => s *= arg_1.get(index),
+                        }
+                    }
+
+                    var a: struct { usize, usize, usize } = .{ 0, 0, 0 };
+                    a[axes[0]] = i;
+                    a[axes[1]] = j;
+                    a[axes[2]] = 0;
+
+                    arg_result.set(a, s);
                 }
             }
-
-            var a: struct { usize, usize, usize } = .{ 0, 0, 0 };
-            a[axes[0]] = i;
-            a[axes[1]] = j;
-            a[axes[2]] = 0;
-
-            result.set(a, s);
         }
-    }
+    }).op_fn;
+
+    var work: Device.Dispatch = .{ .func = dispatch_fn };
+    work.args[0] = @ptrCast(@constCast(mat1));
+    work.args[1] = @ptrCast(@constCast(result));
+
+    device.dispatchChunks(work, 1) catch unreachable;
 }
 
 /// Cast a tensor of one type to another.
-pub fn cast(comptime in_ty: type, comptime out_ty: type, in: *const Tensor(in_ty), out: *Tensor(out_ty)) void {
+pub fn cast(comptime in_ty: type, comptime out_ty: type, device: Device, in: *const Tensor(in_ty), out: *Tensor(out_ty)) void {
     std.debug.assert(std.meta.eql(in.shape, out.shape));
-    for (in.constSlice(), out.slice()) |i, *v| {
-        switch (@typeInfo(in_ty)) {
-            .Int => switch (@typeInfo(out_ty)) {
-                .Int => v.* = @intCast(i),
-                .Float => v.* = @floatFromInt(i),
-                .Bool => v.* = i != 0,
-                else => @compileError("Unsupported target type for tensor typecasting"),
-            },
-            .Float => switch (@typeInfo(out_ty)) {
-                .Int => v.* = @intFromFloat(i),
-                .Float => v.* = @floatCast(i),
-                .Bool => v.* = i != 0,
-                else => @compileError("Unsupported target type for tensor typecasting"),
-            },
-            .Bool => switch (@typeInfo(out_ty)) {
-                .Int => v.* = @intFromBool(i),
-                .Float => v.* = @floatFromInt(@intFromBool(i)),
-                .Bool => v.* = i,
-                else => @compileError("Unsupported target type for tensor typecasting"),
-            },
-            else => @compileError("Unsupported source type for tensor typecasting"),
+    return opUnaryImpl(in_ty, out_ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, out_ty) {
+            return switch (@typeInfo(in_ty)) {
+                .Int => return switch (@typeInfo(out_ty)) {
+                    .Int => @intCast(a),
+                    .Float => @floatFromInt(a),
+                    .Bool => a != 0,
+                    else => @compileError("Unsupported target type for tensor typecasting"),
+                },
+                .Float => return switch (@typeInfo(out_ty)) {
+                    .Int => @intFromFloat(a),
+                    .Float => @floatCast(a),
+                    .Bool => a != 0,
+                    else => @compileError("Unsupported target type for tensor typecasting"),
+                },
+                .Bool => return switch (@typeInfo(out_ty)) {
+                    .Int => @intFromBool(a),
+                    .Float => @floatFromInt(@intFromBool(a)),
+                    .Bool => a,
+                    else => @compileError("Unsupported target type for tensor typecasting"),
+                },
+                else => @compileError("Unsupported source type for tensor typecasting"),
+            };
         }
-    }
+
+        pub inline fn scalar_func(_: anytype, a: anytype) out_ty {
+            return switch (@typeInfo(in_ty)) {
+                .Int => return switch (@typeInfo(out_ty)) {
+                    .Int => @intCast(a),
+                    .Float => @floatFromInt(a),
+                    .Bool => a != 0,
+                    else => @compileError("Unsupported target type for tensor typecasting"),
+                },
+                .Float => return switch (@typeInfo(out_ty)) {
+                    .Int => @intFromFloat(a),
+                    .Float => @floatCast(a),
+                    .Bool => a != 0,
+                    else => @compileError("Unsupported target type for tensor typecasting"),
+                },
+                .Bool => switch (@typeInfo(out_ty)) {
+                    .Int => @intFromBool(a),
+                    .Float => @floatFromInt(@intFromBool(a)),
+                    .Bool => a,
+                    else => @compileError("Unsupported target type for tensor typecasting"),
+                },
+                else => @compileError("Unsupported source type for tensor typecasting"),
+            };
+        }
+    }, device, undefined, in, out);
 }
 
 //todo: merge this with reduce?
@@ -414,7 +453,7 @@ pub fn elementWiseEq(comptime ty: type, device: Device, arg1: *const Tensor(ty),
 
 /// Sigmoid activation.
 pub fn sigmoid(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
-    return opUnaryImpl(ty, struct {
+    return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
             return ones / (ones + std.math.exp(-a));
@@ -428,7 +467,7 @@ pub fn sigmoid(comptime ty: type, device: Device, mat1: *const Tensor(ty), resul
 
 /// Sigmoid activation backpropagation.
 pub fn sigmoidBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
-    return opUnaryImpl(ty, struct {
+    return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: *anyopaque, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
             const s = ones / (ones + std.math.exp(-a));
@@ -444,7 +483,7 @@ pub fn sigmoidBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty
 
 /// ReLu activation.
 pub fn relu(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
-    return opUnaryImpl(ty, struct {
+    return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: *anyopaque, a: anytype) @Vector(vectorSize, ty) {
             return @max(a, @as(@Vector(vectorSize, ty), @splat(0)));
         }
@@ -457,7 +496,7 @@ pub fn relu(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: 
 
 /// ReLu activation backpropagation.
 pub fn reluBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
-    return opUnaryImpl(ty, struct {
+    return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             return @max(std.math.sign(a), @as(@Vector(vectorSize, ty), @splat(0)));
         }
@@ -470,7 +509,7 @@ pub fn reluBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), 
 
 /// SiLu activation aka sigmoid linear unit.
 pub fn silu(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
-    return opUnaryImpl(ty, struct {
+    return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
             return a / (ones + std.math.exp(-a));
@@ -484,7 +523,7 @@ pub fn silu(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: 
 
 /// SiLu derivative.
 pub fn siluBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
-    return opUnaryImpl(ty, struct {
+    return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
             const s = ones / (ones + std.math.exp(-a));
@@ -501,15 +540,15 @@ pub fn siluBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), 
 
 // ================== Unary op implementation ================================
 
-fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, device: Device, userptr: *anyopaque, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+fn opUnaryImpl(comptime in_ty: type, comptime out_ty: type, comptime op_funcs: anytype, device: Device, userptr: *anyopaque, mat1: *const Tensor(in_ty), result: *Tensor(out_ty)) void {
     const dispatch_fn = (struct {
         pub fn dispatch_fn(dispatch: *const Device.Dispatch) void {
-            const arg_1: *const Tensor(ty) = @alignCast(@ptrCast(dispatch.args[0]));
-            const arg_result: *Tensor(ty) = @alignCast(@ptrCast(dispatch.args[1]));
+            const arg_1: *const Tensor(in_ty) = @alignCast(@ptrCast(dispatch.args[0]));
+            const arg_result: *Tensor(out_ty) = @alignCast(@ptrCast(dispatch.args[1]));
             const usrptr: *anyopaque = dispatch.args[2];
             const b = dispatch.n_i;
 
-            opUnaryImplDispatch(ty, op_funcs, usrptr, arg_1, arg_result, b);
+            opUnaryImplDispatch(in_ty, out_ty, op_funcs, usrptr, arg_1, arg_result, b);
         }
     }).dispatch_fn;
 
@@ -521,7 +560,7 @@ fn opUnaryImpl(comptime ty: type, comptime op_funcs: anytype, device: Device, us
     device.dispatchChunks(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
 }
 
-inline fn opUnaryImplDispatch(comptime ty: type, comptime op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(ty), result: *Tensor(ty), b: usize) void {
+inline fn opUnaryImplDispatch(comptime in_ty: type, comptime out_ty: type, comptime op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(in_ty), result: *Tensor(out_ty), b: usize) void {
     const arg_1 = mat1.constSlice();
     const res = result.slice();
 
@@ -530,13 +569,13 @@ inline fn opUnaryImplDispatch(comptime ty: type, comptime op_funcs: anytype, use
     var pos: usize = 0;
 
     if (@hasDecl(op_funcs, "simd_func")) {
-        if (std.simd.suggestVectorLength(ty)) |vectorSize| {
+        if (std.simd.suggestVectorLength(in_ty)) |vectorSize| {
             const maxVecIndex = (batchStride / vectorSize) * vectorSize;
 
             while (pos < maxVecIndex) : (pos += vectorSize) {
                 const arg1_i = b * batchStride + pos;
-                const vec_1: @Vector(vectorSize, ty) = arg_1[arg1_i..][0..vectorSize].*;
-                const res_vec: @Vector(vectorSize, ty) = op_funcs.simd_func(vectorSize, userptr, vec_1);
+                const vec_1: @Vector(vectorSize, in_ty) = arg_1[arg1_i..][0..vectorSize].*;
+                const res_vec: @Vector(vectorSize, out_ty) = op_funcs.simd_func(vectorSize, userptr, vec_1);
                 res[arg1_i..][0..vectorSize].* = res_vec;
             }
 
@@ -751,7 +790,7 @@ test "tensor axis sum" {
     var result = try Tensor(f32).init(.{ 0, 3, 3 }, std.testing.allocator);
     defer result.deinit(std.testing.allocator);
 
-    reduce(f32, .Sum, &mat1, 0, &result); // summing along the batch size
+    reduce(f32, Device.DummyDevice, .Sum, &mat1, 0, &result); // summing along the batch size
     try std.testing.expectEqualSlices(f32, &[_]f32{ 27.0, 30.0, 33.0, 36.0, 39.0, 42.0, 45.0, 48.0, 51.0 }, result.constSlice());
 }
 
@@ -764,7 +803,7 @@ test "tensor casting" {
     for (mat1.slice(), 0..) |*value, i|
         value.* = @floatFromInt(i);
 
-    cast(f32, u8, &mat1, &mat2);
+    cast(f32, u8, Device.DummyDevice, &mat1, &mat2);
 
     for (mat2.constSlice(), 0..) |value, i|
         try std.testing.expectEqual(@as(u8, @intCast(i)), value);
