@@ -130,7 +130,7 @@ pub fn matMul(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: 
     work.args[1] = @ptrCast(@constCast(mat2));
     work.args[2] = @ptrCast(@constCast(result));
 
-    device.dispatchChunks(work, @max(1, result.shape.@"0")) catch unreachable;
+    device.dispatch(work, @max(1, result.shape.@"0")) catch unreachable;
 }
 
 /// Performs a scalar to tensor multiplication.
@@ -325,7 +325,7 @@ pub fn reduce(comptime ty: type, device: Device, comptime op: ReduceOp, mat1: *c
     work.args[0] = @ptrCast(@constCast(mat1));
     work.args[1] = @ptrCast(@constCast(result));
 
-    device.dispatchChunks(work, 1) catch unreachable;
+    device.dispatch(work, 1) catch unreachable;
 }
 
 /// Cast a tensor of one type to another.
@@ -551,7 +551,7 @@ fn opUnaryImpl(comptime in_ty: type, comptime out_ty: type, comptime op_funcs: a
     dispatch.args[1] = @constCast(@ptrCast(result));
     dispatch.args[2] = userptr;
 
-    device.dispatchChunks(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
+    device.dispatch(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
 }
 
 inline fn opUnaryImplDispatch(comptime in_ty: type, comptime out_ty: type, comptime op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(in_ty), result: *Tensor(out_ty), b: usize) void {
@@ -652,7 +652,7 @@ fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, device: Device, u
         dispatch.args[2] = @constCast(@ptrCast(result));
         dispatch.args[3] = @constCast(@ptrCast(userpointer));
 
-        device.dispatchChunks(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
+        device.dispatch(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
     } else {
         const dispatch_fn = (struct {
             pub fn dispatch_fn(arg: *const Device.Dispatch) void {
@@ -672,7 +672,7 @@ fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, device: Device, u
         dispatch.args[2] = @constCast(@ptrCast(result));
         dispatch.args[3] = @constCast(@ptrCast(userpointer));
 
-        device.dispatchChunks(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
+        device.dispatch(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
     }
 }
 

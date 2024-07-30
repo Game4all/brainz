@@ -43,17 +43,7 @@ pub fn init(self: *Self, alloc: Allocator, n_th: ?usize) !void {
     }
 }
 
-fn dispatch(ptr: *anyopaque, work: Dispatch) !void {
-    const self: *@This() = @ptrCast(@alignCast(ptr));
-    self.tasks_mutex.lock();
-    defer self.tasks_mutex.unlock();
-
-    self.sync_wg.start();
-
-    try self.tasks.writeItem(work);
-}
-
-fn dispatchChunks(ptr: *anyopaque, work: Dispatch, num_pieces: usize) !void {
+fn dispatch(ptr: *anyopaque, work: Dispatch, num_pieces: usize) !void {
     const self: *@This() = @ptrCast(@alignCast(ptr));
     self.tasks_mutex.lock();
     defer self.tasks_mutex.unlock();
@@ -81,7 +71,6 @@ pub fn device(self: *@This()) Device {
         .ptr = @ptrCast(self),
         .vtable = &.{
             .dispatch = dispatch,
-            .dispatchChunks = dispatchChunks,
             .barrier = barrier,
         },
     };

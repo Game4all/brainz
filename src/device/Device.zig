@@ -5,17 +5,11 @@ const Self = @This();
 ptr: *anyopaque,
 vtable: *const VTable,
 
-/// Dispatches a computation to run on the device.
-/// - `work` : The dispatch to run.
-pub inline fn dispatch(self: *const @This(), work: Dispatch) !void {
-    return self.vtable.dispatch(self.ptr, work);
-}
-
-/// Splits a dispatch into multiple sub-dispatches to be run.
-/// - `work` : The dispatch to split into sub-chunks
-/// - `num_pieces` : Number of sub-chunks to dispatch from the original dispatch.
-pub inline fn dispatchChunks(self: *const @This(), work: Dispatch, num_pieces: usize) !void {
-    return self.vtable.dispatchChunks(self.ptr, work, num_pieces);
+/// Dispatches the specified operation to run.
+/// - `work` : The dispatch to be run.
+/// - `num_pieces` : Number of pieces which can be treated in parallel in this dispatch.
+pub inline fn dispatch(self: *const @This(), work: Dispatch, num_pieces: usize) !void {
+    return self.vtable.dispatch(self.ptr, work, num_pieces);
 }
 
 /// Wait for the ongoing operations to finish before continuing further.
@@ -24,15 +18,14 @@ pub inline fn barrier(self: *const @This()) !void {
 }
 
 pub const VTable = struct {
-    /// Dispatches a computation to run on the device.
-    dispatch: *const fn (ctx: *anyopaque, work: Dispatch) anyerror!void,
-    /// Splits a dispatch into multiple sub-dispatches to be run.
-    dispatchChunks: *const fn (ctx: *anyopaque, work: Dispatch, num_pieces: usize) anyerror!void,
+    /// Dispatches the specified operation to run.
+    dispatch: *const fn (ctx: *anyopaque, work: Dispatch, num_pieces: usize) anyerror!void,
     /// Wait for the ongoing operations to finish before continuing further.
     barrier: *const fn (ctx: *anyopaque) anyerror!void,
 };
 
 /// Represents a chunk of computation which can be run.
+//TODO: this should not be part of the public API and be part of the internal device implementation.
 pub const Dispatch = struct {
     pub const DispatchFunc = *const fn (item: *const @This()) void;
     /// The computation to perform.
@@ -48,11 +41,7 @@ pub const Dispatch = struct {
 /// A dummy device implementation
 pub const DummyDevice = blk: {
     const vtable = struct {
-        fn dispatch(_: *anyopaque, work: Dispatch) !void {
-            work.func(&work);
-        }
-
-        fn dispatchChunks(_: *anyopaque, work: Dispatch, num_pieces: usize) !void {
+        fn dispatch(_: *anyopaque, work: Dispatch, num_pieces: usize) !void {
             for (0..num_pieces) |i| {
                 var item = work;
                 item.n_i = i;
@@ -69,7 +58,6 @@ pub const DummyDevice = blk: {
         .ptr = undefined,
         .vtable = &.{
             .dispatch = &vtable.dispatch,
-            .dispatchChunks = &vtable.dispatchChunks,
             .barrier = &vtable.barrier,
         },
     };
