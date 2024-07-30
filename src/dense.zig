@@ -28,7 +28,9 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime batch_siz
         pub fn init(self: *@This(), alloc: Allocator) !void {
             const rnd = blk: {
                 var seed: u64 = undefined;
-                try std.posix.getrandom(@constCast(@alignCast(std.mem.asBytes(&seed))));
+                if (!@import("builtin").target.isWasm())
+                    try std.posix.getrandom(@constCast(@alignCast(std.mem.asBytes(&seed))));
+
                 var pcg = std.Random.Pcg.init(seed);
                 break :blk pcg.random();
             };

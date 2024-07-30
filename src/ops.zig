@@ -28,6 +28,27 @@ pub const Op = enum {
     SiLuBackprop,
 };
 
+/// Attempts to broadcast two shapes and returns the broadcasted shape.
+/// Returns an error if the shapes aren't broadcastable.
+pub fn broadcastShape(shape1: struct { usize, usize, usize }, shape2: struct { usize, usize, usize }) error{IncompatibleShapes}!struct { usize, usize, usize } {
+    var final_shape: struct { usize, usize, usize } = .{ 0, 0, 0 };
+
+    comptime var i = 2;
+
+    inline while (i >= 0) : (i -= 1) {
+        final_shape[i] = try broadcastDim(shape1[i], shape2[i]);
+    }
+
+    return final_shape;
+}
+
+pub inline fn broadcastDim(one: usize, other: usize) error{IncompatibleShapes}!usize {
+    if (one != other and one != 1 and one != 0 and other != 1 and other != 0)
+        return error.IncompatibleShapes;
+
+    return @max(one, other);
+}
+
 /// Returns the shape of the tensor resulting from the given operation.
 /// Returns an error if the two operand dimensions aren't compatible with each other for the specified operation.
 pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: anytype) error{ IncompatibleShapes, RequiresTwoShapes, InvalidAxis }!struct { usize, usize, usize } {
@@ -50,16 +71,9 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: 
             if (shape1[2] != shape_2[1])
                 return error.IncompatibleShapes;
 
+            final_shape[0] = try broadcastDim(shape1[0], shape_2[0]);
             final_shape[1] = shape1[1];
             final_shape[2] = shape_2[2];
-
-            const batch1 = shape1[0];
-            const batch2 = shape_2[0];
-
-            if (batch1 != batch2 and batch1 != 1 and batch1 != 0 and batch2 != 1 and batch2 != 0)
-                return error.IncompatibleShapes;
-
-            final_shape[0] = @max(batch1, batch2);
 
             return final_shape;
         },
@@ -81,26 +95,6 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: 
         },
         inline .Transpose => return .{ shape1.@"0", shape1.@"2", shape1.@"1" },
     }
-}
-
-/// Attempts to broadcast two shapes and returns the broadcasted shape.
-/// Returns an error if the shapes aren't broadcastable.
-pub fn broadcastShape(shape1: struct { usize, usize, usize }, shape2: struct { usize, usize, usize }) error{IncompatibleShapes}!struct { usize, usize, usize } {
-    var final_shape: struct { usize, usize, usize } = .{ 0, 0, 0 };
-
-    comptime var i = 2;
-
-    inline while (i >= 0) : (i -= 1) {
-        const dim1 = shape1[i];
-        const dim2 = shape2[i];
-
-        if (dim1 != dim2 and dim1 != 1 and dim1 != 0 and dim2 != 1 and dim2 != 0)
-            return error.IncompatibleShapes;
-
-        final_shape[i] = @max(dim1, dim2);
-    }
-
-    return final_shape;
 }
 
 /// Performs a Tensor multiplication between two tensors.
