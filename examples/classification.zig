@@ -44,8 +44,6 @@ pub fn main() !void {
 
     var loss_grad = try Tensor(f32).init(mlp.outputShape(), alloc);
 
-    const BCE = brainz.loss.BinaryCrossEntropy;
-
     const time_before = try std.time.Instant.now();
 
     // train the network for 500 epochs.
@@ -62,11 +60,13 @@ pub fn main() !void {
             const expected_mat = try Tensor(f32).initFromSlice(mlp.outputShape(), @constCast(LABELS[i..(i + 10)]));
 
             const result = mlp.forward(device.device(), &input_mat);
-            BCE.computeDerivative(device.device(), result, &expected_mat, &loss_grad);
-            loss = BCE.compute(device.device(), result, &expected_mat);
+
+            loss = brainz.ops.binaryCrossEntropyLoss(f32, device.device(), result, &expected_mat);
+            brainz.ops.binaryCrossEntropyLossBackprop(f32, device.device(), result, &expected_mat, &loss_grad);
+            try device.device().barrier();
 
             mlp.backwards(device.device(), &loss_grad);
-            mlp.step(device.device(), &input_mat, 0.20);
+            mlp.step(device.device(), &input_mat, 0.2);
         }
 
         const epoch_end_time = try std.time.Instant.now();

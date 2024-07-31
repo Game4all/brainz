@@ -26,6 +26,14 @@ pub const Op = enum {
     ReLuBackprop,
     SiLu,
     SiLuBackprop,
+
+    // loss functions
+    MseLoss,
+    MseLossBackprop,
+    BinaryCrossEntropyLoss,
+    BinaryCrossEntropyLossBackprop,
+    CategoricalCrossEntropyLoss,
+    CategoricalCrossEntropyLossBackprop,
 };
 
 /// Attempts to broadcast two shapes and returns the broadcasted shape.
@@ -77,8 +85,8 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: 
 
             return final_shape;
         },
-        inline .Cast, .Exp, .Log, .MulScalar, .Sigmoid, .SigmoidBackprop, .ReLu, .ReLuBackprop, .SiLu, .SiLuBackprop => return shape1, //same shape as the input
-        inline .Sum => .{ 1, 1, 1 }, // outputs a scalar
+        inline .Cast, .Exp, .Log, .MulScalar, .Sigmoid, .SigmoidBackprop, .ReLu, .ReLuBackprop, .SiLu, .SiLuBackprop, .MseLossBackprop, .CategoricalCrossEntropyLossBackprop, .BinaryCrossEntropyLossBackprop => return shape1, //same shape as the input
+        inline .Sum, .MseLoss, .CategoricalCrossEntropyLoss, .BinaryCrossEntropyLoss => .{ 0, 0, 0 }, // outputs a scalar
         inline .Reduce, .ArgMax => {
             const axis_idx = switch (@typeInfo(@TypeOf(shape2))) {
                 .ComptimeInt => shape2,
@@ -530,6 +538,77 @@ pub fn siluBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), 
             return s * (1 + a * (1 - s));
         }
     }, device, undefined, mat1, result);
+}
+
+// ================== Loss functions as operations ===========================
+
+/// Mean square error loss metric.
+pub fn mseLoss(comptime ty: type, _: Device, mat1: *const Tensor(ty), result: *const Tensor(ty)) ty {
+    var loss: ty = 0.0;
+    const n: ty = switch (@typeInfo(ty)) {
+        .Float => |_| @floatFromInt(mat1.constSlice().len),
+        else => @compileError("Unsupported type argument"),
+    };
+
+    for (mat1.constSlice(), result.constSlice()) |i, t|
+        loss += (1 / n) * std.math.pow(ty, t - i, 2);
+
+    return loss;
+}
+
+/// Mean square error loss for backpropagation.
+pub inline fn mseLossBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *const Tensor(ty), out: *Tensor(ty)) void {
+    return sub(ty, device, mat1, result, out, .{});
+}
+
+/// Binary cross entropy loss metric.
+pub fn binaryCrossEntropyLoss(comptime ty: type, _: Device, input: *const Tensor(ty), target: *const Tensor(ty)) ty {
+    var loss: ty = 0.0;
+    const n: ty, const min_value: ty, const max_value: ty = switch (@typeInfo(ty)) {
+        .Float => |_| .{ @floatFromInt(input.constSlice().len), std.math.floatMin(ty), 1 },
+        else => @compileError("Unsupported type argument"),
+    };
+
+    for (input.constSlice(), target.constSlice()) |i, t|
+        loss -= (1 / n) * ((t * @log(i + min_value)) + (max_value - t) * @log(max_value - i + min_value));
+
+    return loss;
+}
+
+/// Binary cross entropy loss for backpropagation.
+pub fn binaryCrossEntropyLossBackprop(comptime ty: type, device: Device, input: *const Tensor(ty), target: *const Tensor(ty), out: *Tensor(ty)) void {
+    return opBinaryImpl(ty, struct {
+        pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype, b: anytype) @Vector(vectorSize, ty) {
+            const ones: @Vector(vectorSize, ty) = @splat(1);
+            const min_val: @Vector(vectorSize, ty) = @splat(std.math.floatMin(ty));
+
+            return (a + min_val - b) / ((a + min_val) * (ones - a + min_val));
+        }
+
+        pub inline fn scalar_func(_: anytype, a: anytype, b: anytype) ty {
+            const min_val = std.math.floatMin(ty);
+            return (a + min_val - b) / ((a + min_val) * (1.0 - a + min_val));
+        }
+    }, device, undefined, input, target, out);
+}
+
+/// Categorical cross entropy loss metric.
+pub fn categoricalCrossEntropyLoss(comptime ty: type, _: Device, input: *const Tensor(ty), target: *const Tensor(ty)) ty {
+    var loss: ty = 0.0;
+    const n: ty, const min_value: ty = switch (@typeInfo(ty)) {
+        .Float => |_| .{ @floatFromInt(input.constSlice().len), std.math.floatMin(ty) },
+        else => @compileError("Unsupported type argument"),
+    };
+
+    for (input.constSlice(), target.constSlice()) |i, t|
+        loss -= (1 / n) * t * @log(i + min_value);
+
+    return loss;
+}
+
+/// Categorical cross entropy loss metric for backpropagation.
+pub inline fn categoricalCrossEntropyLossBackprop(comptime ty: type, dev: Device, in: *const Tensor(ty), target: *const Tensor(ty), result: *Tensor(ty)) void {
+    return sub(ty, dev, in, target, result, .{});
 }
 
 // ================== Unary op implementation ================================

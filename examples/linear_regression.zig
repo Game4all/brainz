@@ -18,8 +18,6 @@ pub fn main() !void {
     var dense: brainz.Dense(1, 1, 4, brainz.activation.Linear) = undefined;
     try dense.init(alloc);
 
-    const loss = brainz.loss.MSE;
-
     var out = std.io.getStdOut().writer();
 
     // contains the expected values for backprop
@@ -52,8 +50,8 @@ pub fn main() !void {
     // train for 100 epochs.
     for (0..200) |_| {
         const result = dense.forward(device, &inputs);
-        const loss_val = loss.compute(device, result, &expected_mat);
-        loss.computeDerivative(device, result, &expected_mat, &loss_grad);
+        const loss_val = brainz.ops.mseLoss(f32, device, result, &expected_mat);
+        brainz.ops.mseLossBackprop(f32, device, result, &expected_mat, &loss_grad);
 
         // compute the gradients for the layer.
         // they are stored in the `.grad` field.

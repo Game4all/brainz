@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub const activation = @import("activation.zig");
-pub const loss = @import("loss.zig");
 
 pub const tensor = @import("tensor.zig");
 pub const ops = @import("ops.zig");

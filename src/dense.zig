@@ -186,7 +186,6 @@ test "basic xor mlp" {
 
 test "linear regression backprop test" {
     const Linear = @import("activation.zig").Linear;
-    const MSE = @import("loss.zig").MSE;
     const ops = @import("ops.zig");
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -232,7 +231,7 @@ test "linear regression backprop test" {
             @memcpy(expected_mat.slice(), @constCast(&o));
 
             const result = regressor.forward(device, &input_mat);
-            MSE.computeDerivative(device, result, &expected_mat, &loss_grad);
+            ops.mseLossBackprop(f32, device, result, &expected_mat, &loss_grad);
 
             // compute the gradients for the layer.
             // they are stored in the `.grad`

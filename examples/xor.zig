@@ -98,8 +98,6 @@ pub fn main() !void {
 
     const device = Device.DummyDevice;
 
-    const BCE = brainz.loss.BinaryCrossEntropy;
-
     var expected_mat = try Tensor(f32).initFromSlice(mlp.outputShape(), @constCast(@ptrCast(&[_][1]f32{
         [1]f32{0.0},
         [1]f32{1.0},
@@ -122,9 +120,11 @@ pub fn main() !void {
 
     for (0..10_000) |_| {
         const result = mlp.forward(device, &input_mat);
-        const loss = BCE.compute(device, result, &expected_mat);
+        const loss = brainz.ops.binaryCrossEntropyLoss(f32, device, result, &expected_mat);
 
-        BCE.computeDerivative(device, result, &expected_mat, &loss_grad);
+        brainz.ops.binaryCrossEntropyLossBackprop(f32, device, result, &expected_mat, &loss_grad);
+        try device.barrier();
+
         mlp.backwards(device, &loss_grad);
         mlp.step(device, &input_mat, 0.8);
         try out.print("\rloss: {}             ", .{loss});
