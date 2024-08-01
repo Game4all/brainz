@@ -1,13 +1,14 @@
 const std = @import("std");
 const Tensor = @import("tensor.zig").Tensor;
+const Device = @import("device/Device.zig");
 const ops = @import("ops.zig");
 
 /// Represents an activation function.
 pub const Activation = struct {
     /// Applies the activation function to the input.
-    apply: *const fn (*const Tensor(f32), *Tensor(f32)) *Tensor(f32),
+    apply: *const fn (Device, *const Tensor(f32), *Tensor(f32)) *Tensor(f32),
     ///Applies the derivative of the activation function w.r.t the inputs.
-    applyDerivative: *const fn (*const Tensor(f32), *Tensor(f32)) *Tensor(f32),
+    applyDerivative: *const fn (Device, *const Tensor(f32), *Tensor(f32)) *Tensor(f32),
     /// Name of this activation function. Used for display purposes.
     name: [:0]const u8,
 };
@@ -19,11 +20,11 @@ pub const Linear: Activation = .{
     .name = @tagName(.linear),
 };
 
-fn linear_activation(in: *const Tensor(f32), _: *Tensor(f32)) *Tensor(f32) {
+fn linear_activation(_: Device, in: *const Tensor(f32), _: *Tensor(f32)) *Tensor(f32) {
     return @constCast(in);
 }
 
-fn linear_derivative(_: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+fn linear_derivative(_: Device, _: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     out.fill(1.0);
     return out;
 }
@@ -35,13 +36,15 @@ pub const ReLu: Activation = .{
     .name = @tagName(.relu),
 };
 
-fn relu_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
-    ops.relu(f32, in, out);
+fn relu_activation(device: Device, in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+    ops.relu(f32, device, in, out);
+    device.barrier() catch unreachable;
     return out;
 }
 
-fn relu_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
-    ops.reluBackprop(f32, in, out);
+fn relu_derivative(device: Device, in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+    ops.reluBackprop(f32, device, in, out);
+    device.barrier() catch unreachable;
     return out;
 }
 
@@ -52,13 +55,13 @@ pub const Sigmoid: Activation = .{
     .name = @tagName(.sigmoid),
 };
 
-fn sigmoid_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
-    ops.sigmoid(f32, in, out);
+fn sigmoid_activation(device: Device, in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+    ops.sigmoid(f32, device, in, out);
     return out;
 }
 
-fn sigmoid_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
-    ops.sigmoidBackprop(f32, in, out);
+fn sigmoid_derivative(device: Device, in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+    ops.sigmoidBackprop(f32, device, in, out);
     return out;
 }
 
@@ -69,13 +72,13 @@ pub const SiLu: Activation = .{
     .name = @tagName(.silu),
 };
 
-fn silu_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
-    ops.silu(f32, in, out);
+fn silu_activation(dev: Device, in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+    ops.silu(f32, dev, in, out);
     return out;
 }
 
-fn silu_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
-    ops.siluBackprop(f32, in, out);
+fn silu_derivative(dev: Device, in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+    ops.siluBackprop(f32, dev, in, out);
     return out;
 }
 
@@ -86,14 +89,14 @@ pub const Heaviside: Activation = .{
     .name = @tagName(.heaviside),
 };
 
-fn heaviside_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+fn heaviside_activation(_: Device, in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     for (in.constSlice(), out.slice()) |i, *o| {
         o.* = @max(std.math.sign(i), 0);
     }
     return out;
 }
 
-fn heaviside_derivative(_: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+fn heaviside_derivative(_: Device, _: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     out.fill(1.0);
     return out;
 }
@@ -105,14 +108,17 @@ pub const Softmax: Activation = .{
     .name = @tagName(.softmax),
 };
 
-fn softmax_activation(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
-    ops.exp(f32, in, out);
+fn softmax_activation(dev: Device, in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+    ops.exp(f32, dev, in, out);
+    dev.barrier() catch unreachable;
+
     const s = ops.sum(f32, out);
-    ops.mulScalar(f32, out, 1.0 / s, out); // s can't be ever 0.0 since exp can't be 0.0.
+    ops.mulScalar(f32, dev, out, 1.0 / s, out); // s can't be ever 0.0 since exp can't be 0.0.
+
     return out;
 }
 
-fn softmax_derivative(in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
+fn softmax_derivative(_: Device, in: *const Tensor(f32), out: *Tensor(f32)) *Tensor(f32) {
     // return in * (1.0 - in);
     for (in.constSlice(), out.slice()) |i, *o| {
         const A = (1.0 / (1.0 + std.math.exp(-i)));
@@ -132,7 +138,7 @@ test "softmax activation" {
     test_mat.set(.{ 0, 1, 0 }, 3.0);
     test_mat.set(.{ 0, 2, 0 }, 6.0);
 
-    _ = Softmax.apply(&test_mat, &softmax_mat);
+    _ = Softmax.apply(Device.DummyDevice, &test_mat, &softmax_mat);
     try std.testing.expectEqual(1.0, ops.sum(f32, &softmax_mat));
 }
 
@@ -145,8 +151,8 @@ test "relu activation" {
     var backprop_results = try Tensor(f32).init(test_mat.shape, std.testing.allocator);
     defer backprop_results.deinit(std.testing.allocator);
 
-    ops.relu(f32, &test_mat, &results);
-    ops.reluBackprop(f32, &test_mat, &backprop_results);
+    ops.relu(f32, Device.DummyDevice, &test_mat, &results);
+    ops.reluBackprop(f32, Device.DummyDevice, &test_mat, &backprop_results);
 
     try std.testing.expectEqualSlices(f32, &[_]f32{ 0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0 }, results.constSlice());
     try std.testing.expectEqualSlices(f32, &[_]f32{ 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 }, backprop_results.constSlice());
@@ -160,10 +166,10 @@ test "sigmoid activation" {
     var sigmoid_mat = try Tensor(f32).init(test_mat.shape, std.testing.allocator);
     defer sigmoid_mat.deinit(std.testing.allocator);
 
-    _ = Sigmoid.apply(&test_mat, &sigmoid_mat);
+    _ = Sigmoid.apply(Device.DummyDevice, &test_mat, &sigmoid_mat);
     try std.testing.expectEqual(2.19317573589, ops.sum(f32, &sigmoid_mat));
 
     test_mat.fill(0.0);
-    _ = Sigmoid.apply(&test_mat, &sigmoid_mat);
+    _ = Sigmoid.apply(Device.DummyDevice, &test_mat, &sigmoid_mat);
     try std.testing.expectEqual(1.5, ops.sum(f32, &sigmoid_mat));
 }
