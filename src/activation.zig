@@ -101,47 +101,6 @@ fn heaviside_derivative(_: Device, _: *const Tensor(f32), out: *Tensor(f32)) !*T
     return out;
 }
 
-/// Softmax activation function
-pub const Softmax: Activation = .{
-    .apply = softmax_activation,
-    .applyDerivative = softmax_derivative,
-    .name = @tagName(.softmax),
-};
-
-fn softmax_activation(dev: Device, in: *const Tensor(f32), out: *Tensor(f32)) !*Tensor(f32) {
-    try ops.exp(f32, dev, in, out);
-    try dev.barrier();
-
-    const s = ops.sum(f32, out);
-    try ops.mulScalar(f32, dev, out, 1.0 / s, out); // s can't be ever 0.0 since exp can't be 0.0.
-
-    return out;
-}
-
-fn softmax_derivative(_: Device, in: *const Tensor(f32), out: *Tensor(f32)) !*Tensor(f32) {
-    // return in * (1.0 - in);
-    for (in.constSlice(), out.slice()) |i, *o| {
-        const A = (1.0 / (1.0 + std.math.exp(-i)));
-        o.* = A * (1.0 - A);
-    }
-    return out;
-}
-
-test "softmax activation" {
-    var test_mat = try Tensor(f32).init(.{ 0, 3, 1 }, std.testing.allocator);
-    defer test_mat.deinit(std.testing.allocator);
-
-    var softmax_mat = try Tensor(f32).init(test_mat.shape, std.testing.allocator);
-    defer softmax_mat.deinit(std.testing.allocator);
-
-    test_mat.set(.{ 0, 0, 0 }, 1.0);
-    test_mat.set(.{ 0, 1, 0 }, 3.0);
-    test_mat.set(.{ 0, 2, 0 }, 6.0);
-
-    _ = try Softmax.apply(Device.DummyDevice, &test_mat, &softmax_mat);
-    try std.testing.expectEqual(1.0, ops.sum(f32, &softmax_mat));
-}
-
 test "relu activation" {
     var test_mat = try Tensor(f32).initFromSlice(.{ 0, 0, 9 }, @constCast(&[_]f32{ 0.0, -1.0, 4.0, 0.0, -1.0, 4.0, 0.0, -1.0, 4.0 }));
 
