@@ -18,6 +18,7 @@ pub const Op = enum {
     Cast,
     ArgMax,
     ElementWiseEq,
+    Softmax,
 
     // activations
     Sigmoid,
@@ -85,7 +86,7 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: 
 
             return final_shape;
         },
-        inline .Cast, .Exp, .Log, .MulScalar, .Sigmoid, .SigmoidBackprop, .ReLu, .ReLuBackprop, .SiLu, .SiLuBackprop, .MseLossBackprop, .CategoricalCrossEntropyLossBackprop, .BinaryCrossEntropyLossBackprop => return shape1, //same shape as the input
+        inline .Cast, .Exp, .Log, .MulScalar, .Sigmoid, .SigmoidBackprop, .ReLu, .ReLuBackprop, .SiLu, .SiLuBackprop, .MseLossBackprop, .CategoricalCrossEntropyLossBackprop, .BinaryCrossEntropyLossBackprop, .Softmax => return shape1, //same shape as the input
         inline .Sum, .MseLoss, .CategoricalCrossEntropyLoss, .BinaryCrossEntropyLoss => .{ 0, 0, 0 }, // outputs a scalar
         inline .Reduce, .ArgMax => {
             const axis_idx = switch (@typeInfo(@TypeOf(shape2))) {
@@ -426,6 +427,54 @@ pub fn argmax(comptime ty: type, in: *const Tensor(ty), comptime axis: usize, re
             result.set(a, max_index);
         }
     }
+}
+
+/// Performs softmax on the specified tensor
+pub fn softmax(comptime ty: type, device: Device, in: *const Tensor(ty), comptime axis: usize, result: *Tensor(ty)) !void {
+    const dispatch_fn = (struct {
+        pub fn op_fn(arg: *const Device.Dispatch) void {
+            const arg_1: *const Tensor(ty) = @alignCast(@ptrCast(arg.args[0]));
+            const arg_result: *Tensor(ty) = @alignCast(@ptrCast(arg.args[1]));
+
+            const axes: struct { usize, usize, usize } = switch (axis) {
+                0 => .{ 1, 2, 0 },
+                1 => .{ 0, 2, 1 },
+                2 => .{ 0, 1, 2 },
+                else => unreachable,
+            };
+
+            for (0..@max(arg_result.shape[axes[0]], 1)) |i| {
+                for (0..@max(arg_result.shape[axes[1]], 1)) |j| {
+                    var sum_exp: ty = 0;
+
+                    for (0..@max(arg_1.shape[axes[2]], 1)) |k| {
+                        var index: struct { usize, usize, usize } = .{ 0, 0, 0 };
+                        index[axes[0]] = i;
+                        index[axes[1]] = j;
+                        index[axes[2]] = k;
+
+                        sum_exp += @exp(arg_1.get(index));
+                    }
+
+                    for (0..@max(arg_1.shape[axes[2]], 1)) |k| {
+                        var temp_index: struct { usize, usize, usize } = .{ 0, 0, 0 };
+                        temp_index[axes[0]] = i;
+                        temp_index[axes[1]] = j;
+                        temp_index[axes[2]] = k;
+
+                        const softmax_val = @exp(arg_1.get(temp_index)) / sum_exp;
+                        arg_result.set(temp_index, softmax_val);
+                    }
+                }
+            }
+        }
+    }).op_fn;
+
+    var work: Device.Dispatch = .{ .func = dispatch_fn };
+    work.args[0] = @ptrCast(@constCast(in));
+    work.args[1] = @ptrCast(@constCast(result));
+
+    try device.dispatch(work, 1);
 }
 
 /// Performs element-wise equality comparision on two tensors.
@@ -914,4 +963,22 @@ test "tensor element wise equal" {
 
     const result = &[_]f32{ 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0 };
     try std.testing.expectEqualSlices(f32, @constCast(result), res.constSlice());
+}
+
+test "tensor softmax" {
+    var mat1 = try Tensor(f32).init(.{ 3, 3, 0 }, std.testing.allocator);
+    defer mat1.deinit(std.testing.allocator);
+
+    var softmax_mat = try Tensor(f32).init(mat1.shape, std.testing.allocator);
+    defer softmax_mat.deinit(std.testing.allocator);
+
+    for (0..3) |I| {
+        mat1.set(.{ I, 0, 0 }, 1.0);
+        mat1.set(.{ I, 1, 0 }, 3.0);
+        mat1.set(.{ I, 2, 0 }, 6.0);
+    }
+
+    try softmax(f32, Device.DummyDevice, &mat1, 1, &softmax_mat);
+
+    try std.testing.expectEqual(3.0, sum(f32, &softmax_mat));
 }
