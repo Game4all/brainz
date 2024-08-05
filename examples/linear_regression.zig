@@ -49,31 +49,31 @@ pub fn main() !void {
 
     // train for 100 epochs.
     for (0..200) |_| {
-        const result = dense.forward(device, &inputs);
+        const result = try dense.forward(device, &inputs);
         const loss_val = brainz.ops.mseLoss(f32, device, result, &expected_mat);
-        brainz.ops.mseLossBackprop(f32, device, result, &expected_mat, &loss_grad);
+        try brainz.ops.mseLossBackprop(f32, device, result, &expected_mat, &loss_grad);
 
         // compute the gradients for the layer.
         // they are stored in the `.grad` field.
-        _ = dense.backwards(device, &loss_grad);
+        _ = try dense.backwards(device, &loss_grad);
 
         // compute the batched gradients wrt to the weights.
-        brainz.ops.matMul(f32, device, &dense.grad, &inputsT, &weights_grad);
+        try brainz.ops.matMul(f32, device, &dense.grad, &inputsT, &weights_grad);
 
         // sum the batched gradients
-        brainz.ops.reduce(f32, device, .Sum, &dense.grad, 0, &bias_grad_summed);
-        brainz.ops.reduce(f32, device, .Sum, &weights_grad, 0, &weights_grad_summed);
+        try brainz.ops.reduce(f32, device, .Sum, &dense.grad, 0, &bias_grad_summed);
+        try brainz.ops.reduce(f32, device, .Sum, &weights_grad, 0, &weights_grad_summed);
 
         // update the weights
-        brainz.ops.sub(f32, device, &dense.weights, &weights_grad_summed, &dense.weights, .{ .alpha = 0.05 * 0.25 }); // Wnew = Wold - Wgrad;
+        try brainz.ops.sub(f32, device, &dense.weights, &weights_grad_summed, &dense.weights, .{ .alpha = 0.05 * 0.25 }); // Wnew = Wold - Wgrad;
         // update the bias
-        brainz.ops.sub(f32, device, &dense.biases, &bias_grad_summed, &dense.biases, .{ .alpha = 0.05 * 0.25 }); // Bnew = Bold - grad;
+        try brainz.ops.sub(f32, device, &dense.biases, &bias_grad_summed, &dense.biases, .{ .alpha = 0.05 * 0.25 }); // Bnew = Bold - grad;
 
         try out.print("\rloss: {}                   ", .{loss_val});
     }
 
     try out.print("\n==== Model Evaluation ===\n", .{});
 
-    const results = dense.forward(device, &inputs);
+    const results = try dense.forward(device, &inputs);
     try out.print("outputs: {}", .{results});
 }

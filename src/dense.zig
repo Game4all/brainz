@@ -66,17 +66,17 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime batch_siz
         }
 
         /// Performs forward propagation through this layer.
-        pub fn forward(self: *@This(), device: Device, inputs: *const Tensor(f32)) *Tensor(f32) {
+        pub fn forward(self: *@This(), device: Device, inputs: *const Tensor(f32)) !*Tensor(f32) {
             // perform linear combination
-            root.ops.matMul(f32, device, &self.weights, inputs, &self.last_outputs);
-            device.barrier() catch unreachable;
+            try root.ops.matMul(f32, device, &self.weights, inputs, &self.last_outputs);
+            try device.barrier();
 
-            root.ops.add(f32, device, &self.biases, &self.last_outputs, &self.last_outputs, .{});
-            device.barrier() catch unreachable;
+            try root.ops.add(f32, device, &self.biases, &self.last_outputs, &self.last_outputs, .{});
+            try device.barrier();
 
             // apply activation element wise
-            const activated = activation.apply(device, &self.last_outputs, &self.activation_outputs);
-            device.barrier() catch unreachable;
+            const activated = try activation.apply(device, &self.last_outputs, &self.activation_outputs);
+            try device.barrier();
 
             return activated;
         }
@@ -84,18 +84,18 @@ pub fn Dense(comptime num_in: usize, comptime num_out: usize, comptime batch_siz
         /// Performs backwards propagation for a hidden layer.
         /// - Stores the resulting error gradient inside the `grad` variable.
         /// - Returns the computed err_gradient to pass on for backpropagation.
-        pub fn backwards(self: *@This(), device: Device, err_grad: *const Tensor(f32)) *Tensor(f32) {
+        pub fn backwards(self: *@This(), device: Device, err_grad: *const Tensor(f32)) !*Tensor(f32) {
             // compute actual error gradient for this layer.
-            const activ = activation.applyDerivative(device, &self.last_outputs, &self.grad);
-            device.barrier() catch unreachable;
+            const activ = try activation.applyDerivative(device, &self.last_outputs, &self.grad);
+            try device.barrier();
 
-            root.ops.mul(f32, device, activ, err_grad, &self.grad);
-            device.barrier() catch unreachable;
+            try root.ops.mul(f32, device, activ, err_grad, &self.grad);
+            try device.barrier();
 
             // compute the gradient that will get passed to the layer before that one for backprop
             const w_transposed = self.weights.transpose();
-            root.ops.matMul(f32, device, &w_transposed, &self.grad, &self.backwards_grad);
-            device.barrier() catch unreachable;
+            try root.ops.matMul(f32, device, &w_transposed, &self.grad, &self.backwards_grad);
+            try device.barrier();
 
             return &self.backwards_grad;
         }
@@ -132,8 +132,8 @@ test "basic xor mlp" {
         layer_1: Dense(2, 2, 0, activations.Heaviside) = undefined,
         layer_2: Dense(2, 1, 0, activations.Heaviside) = undefined,
 
-        pub fn forward(self: *@This(), device: Device, input: *Tensor(f32)) *Tensor(f32) {
-            const a = self.layer_1.forward(device, input);
+        pub fn forward(self: *@This(), device: Device, input: *Tensor(f32)) !*Tensor(f32) {
+            const a = try self.layer_1.forward(device, input);
             return self.layer_2.forward(device, a);
         }
 
@@ -179,7 +179,7 @@ test "basic xor mlp" {
 
     for (ins, outputs) |in, outs| {
         @memcpy(inputs.slice(), @constCast(&in));
-        const prediction = xor_mlp.forward(device, &inputs);
+        const prediction = try xor_mlp.forward(device, &inputs);
         try std.testing.expectEqualSlices(f32, &outs, prediction.constSlice());
     }
 }
@@ -230,20 +230,20 @@ test "linear regression backprop test" {
             @memcpy(input_mat.slice(), @constCast(&i));
             @memcpy(expected_mat.slice(), @constCast(&o));
 
-            const result = regressor.forward(device, &input_mat);
-            ops.mseLossBackprop(f32, device, result, &expected_mat, &loss_grad);
+            const result = try regressor.forward(device, &input_mat);
+            try ops.mseLossBackprop(f32, device, result, &expected_mat, &loss_grad);
 
             // compute the gradients for the layer.
             // they are stored in the `.grad`
-            _ = regressor.backwards(device, &loss_grad);
+            _ = try regressor.backwards(device, &loss_grad);
 
             // compute the grad wrt to the weights.
-            ops.matMul(f32, device, &regressor.grad, &input_transposed, &weights_grad);
+            try ops.matMul(f32, device, &regressor.grad, &input_transposed, &weights_grad);
 
             // update the weights
-            ops.sub(f32, device, &regressor.weights, &weights_grad, &regressor.weights, .{ .alpha = 0.1 }); // Wnew = Wold - Wgrad;
+            try ops.sub(f32, device, &regressor.weights, &weights_grad, &regressor.weights, .{ .alpha = 0.1 }); // Wnew = Wold - Wgrad;
             // update the bias
-            ops.sub(f32, device, &regressor.biases, &regressor.grad, &regressor.biases, .{ .alpha = 0.1 }); // Bnew = Bold - grad;
+            try ops.sub(f32, device, &regressor.biases, &regressor.grad, &regressor.biases, .{ .alpha = 0.1 }); // Bnew = Bold - grad;
         }
     }
 
@@ -251,7 +251,7 @@ test "linear regression backprop test" {
         @memcpy(input_mat.slice(), @constCast(&i));
         @memcpy(expected_mat.slice(), @constCast(&o));
 
-        const result = regressor.forward(device, &input_mat);
+        const result = try regressor.forward(device, &input_mat);
         try std.testing.expectApproxEqAbs(o[0], result.get(.{ 0, 0, 0 }), 1.0e-5);
     }
 }

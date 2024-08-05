@@ -59,14 +59,14 @@ pub fn main() !void {
             const input_mat = try Tensor(f32).initFromSlice(mlp.inputShape(), @constCast(data));
             const expected_mat = try Tensor(f32).initFromSlice(mlp.outputShape(), @constCast(LABELS[i..(i + 10)]));
 
-            const result = mlp.forward(device.device(), &input_mat);
+            const result = try mlp.forward(device.device(), &input_mat);
 
             loss = brainz.ops.binaryCrossEntropyLoss(f32, device.device(), result, &expected_mat);
-            brainz.ops.binaryCrossEntropyLossBackprop(f32, device.device(), result, &expected_mat, &loss_grad);
+            try brainz.ops.binaryCrossEntropyLossBackprop(f32, device.device(), result, &expected_mat, &loss_grad);
             try device.device().barrier();
 
-            mlp.backwards(device.device(), &loss_grad);
-            mlp.step(device.device(), &input_mat, 0.2);
+            try mlp.backwards(device.device(), &loss_grad);
+            try mlp.step(device.device(), &input_mat, 0.2);
         }
 
         const epoch_end_time = try std.time.Instant.now();
@@ -84,7 +84,7 @@ pub fn main() !void {
     const eval_inputs = try Tensor(f32).initFromSlice(.{ 10, 624, 1 }, @as(*[6240]f32, @constCast(@ptrCast(&DATASET.EVAL_DATASET[0])))[0..]);
     const eval_labels = try Tensor(f32).initFromSlice(.{ 10, 1, 1 }, @constCast(@ptrCast(EVAL_LABELS[0..])));
 
-    const results = mlp.forward(device.device(), &eval_inputs);
+    const results = try mlp.forward(device.device(), &eval_inputs);
 
     for (0..10) |i| {
         try out.print("Out: {} | Expected: {} \n", .{ @round(results.get(.{ 0, i, 0 })), eval_labels.get(.{ i, 0, 0 }) });
@@ -107,15 +107,15 @@ const ClassificationMLP = struct {
     bias_grad_1: Tensor(f32),
     bias_grad_2: Tensor(f32),
 
-    pub fn forward(self: *@This(), device: Device, input: *const Tensor(f32)) *Tensor(f32) {
-        const a = self.layer_1.forward(device, input);
-        const b = self.layer_2.forward(device, a);
+    pub fn forward(self: *@This(), device: Device, input: *const Tensor(f32)) !*Tensor(f32) {
+        const a = try self.layer_1.forward(device, input);
+        const b = try self.layer_2.forward(device, a);
         return b;
     }
 
-    pub fn backwards(self: *@This(), device: Device, loss_grad: *const Tensor(f32)) void {
-        const A = self.layer_2.backwards(device, loss_grad);
-        _ = self.layer_1.backwards(device, A);
+    pub fn backwards(self: *@This(), device: Device, loss_grad: *const Tensor(f32)) !void {
+        const A = try self.layer_2.backwards(device, loss_grad);
+        _ = try self.layer_1.backwards(device, A);
     }
 
     pub inline fn inputShape(self: *@This()) struct { usize, usize, usize } {
@@ -127,32 +127,32 @@ const ClassificationMLP = struct {
     }
 
     /// Update the weights by the specified learning rate
-    pub fn step(self: *@This(), device: Device, ins: *const Tensor(f32), lr: f32) void {
+    pub fn step(self: *@This(), device: Device, ins: *const Tensor(f32), lr: f32) !void {
         const layer2_inputs = self.layer_1.activation_outputs.transpose();
         const layer1_inputs = ins.transpose();
 
         // compute the batched gradients wrt to the layers weights
-        brainz.ops.matMul(f32, device, &self.layer_1.grad, &layer1_inputs, &self.weight_grad_1);
-        brainz.ops.matMul(f32, device, &self.layer_2.grad, &layer2_inputs, &self.weight_grad_2);
+        try brainz.ops.matMul(f32, device, &self.layer_1.grad, &layer1_inputs, &self.weight_grad_1);
+        try brainz.ops.matMul(f32, device, &self.layer_2.grad, &layer2_inputs, &self.weight_grad_2);
 
-        device.barrier() catch unreachable;
+        try device.barrier();
 
         // sum the batched gradients for the weight and bias gradients
-        brainz.ops.reduce(f32, device, .Sum, &self.weight_grad_1, 0, &self.weight_grad_1_f);
-        brainz.ops.reduce(f32, device, .Sum, &self.weight_grad_2, 0, &self.weight_grad_2_f);
-        brainz.ops.reduce(f32, device, .Sum, &self.layer_1.grad, 0, &self.bias_grad_1);
-        brainz.ops.reduce(f32, device, .Sum, &self.layer_2.grad, 0, &self.bias_grad_2);
+        try brainz.ops.reduce(f32, device, .Sum, &self.weight_grad_1, 0, &self.weight_grad_1_f);
+        try brainz.ops.reduce(f32, device, .Sum, &self.weight_grad_2, 0, &self.weight_grad_2_f);
+        try brainz.ops.reduce(f32, device, .Sum, &self.layer_1.grad, 0, &self.bias_grad_1);
+        try brainz.ops.reduce(f32, device, .Sum, &self.layer_2.grad, 0, &self.bias_grad_2);
 
-        device.barrier() catch unreachable;
+        try device.barrier();
 
         // update the weights and biases for each layer scaling the gradients by the batch size and learning rate
-        brainz.ops.sub(f32, device, &self.layer_1.weights, &self.weight_grad_1_f, &self.layer_1.weights, .{ .alpha = lr * 0.1 });
-        brainz.ops.sub(f32, device, &self.layer_1.biases, &self.bias_grad_1, &self.layer_1.biases, .{ .alpha = lr * 0.1 });
+        try brainz.ops.sub(f32, device, &self.layer_1.weights, &self.weight_grad_1_f, &self.layer_1.weights, .{ .alpha = lr * 0.1 });
+        try brainz.ops.sub(f32, device, &self.layer_1.biases, &self.bias_grad_1, &self.layer_1.biases, .{ .alpha = lr * 0.1 });
 
-        brainz.ops.sub(f32, device, &self.layer_2.weights, &self.weight_grad_2_f, &self.layer_2.weights, .{ .alpha = lr * 0.1 });
-        brainz.ops.sub(f32, device, &self.layer_2.biases, &self.bias_grad_2, &self.layer_2.biases, .{ .alpha = lr * 0.1 });
+        try brainz.ops.sub(f32, device, &self.layer_2.weights, &self.weight_grad_2_f, &self.layer_2.weights, .{ .alpha = lr * 0.1 });
+        try brainz.ops.sub(f32, device, &self.layer_2.biases, &self.bias_grad_2, &self.layer_2.biases, .{ .alpha = lr * 0.1 });
 
-        device.barrier() catch unreachable;
+        try device.barrier();
     }
 
     pub fn init(self: *@This(), alloc: Allocator) !void {

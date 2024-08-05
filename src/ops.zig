@@ -108,7 +108,7 @@ pub fn opShape(comptime op: Op, shape1: struct { usize, usize, usize }, shape2: 
 /// Performs a Tensor multiplication between two tensors.
 /// Supports broadcasting to a common batch dimension.
 /// Requires the two rightmost dimensions to be the number of columns and number of rows.
-pub fn matMul(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn matMul(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) !void {
     std.debug.assert(mat1.shape[2] == mat2.shape[1]);
     std.debug.assert(result.shape[1] == mat1.shape[1] and result.shape[2] == mat2.shape[2]);
     std.debug.assert(result.shape[0] == @max(mat1.shape[0], mat2.shape[0]));
@@ -138,11 +138,11 @@ pub fn matMul(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: 
     work.args[1] = @ptrCast(@constCast(mat2));
     work.args[2] = @ptrCast(@constCast(result));
 
-    device.dispatch(work, @max(1, result.shape.@"0")) catch unreachable;
+    try device.dispatch(work, @max(1, result.shape.@"0"));
 }
 
 /// Performs a scalar to tensor multiplication.
-pub fn mulScalar(comptime ty: type, device: Device, mat1: *const Tensor(ty), scalar: ty, result: *Tensor(ty)) void {
+pub fn mulScalar(comptime ty: type, device: Device, mat1: *const Tensor(ty), scalar: ty, result: *Tensor(ty)) !void {
     std.debug.assert(std.meta.eql(mat1.shape, result.shape));
 
     // intermediate type used for encoding the scalar value
@@ -166,8 +166,8 @@ pub fn mulScalar(comptime ty: type, device: Device, mat1: *const Tensor(ty), sca
 
 /// Performs substraction of two tensors.
 /// Supports broadcasting to a common shape.
-pub fn sub(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), args: struct { alpha: ty = 1 }) void {
-    const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
+pub fn sub(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), args: struct { alpha: ty = 1 }) !void {
+    const outShape = try broadcastShape(mat1.shape, mat2.shape);
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
     const encScalarType = if (@sizeOf(ty) > @sizeOf(u32)) u64 else u32;
@@ -189,8 +189,8 @@ pub fn sub(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *co
 
 /// Performs element-wise multiplication of two tensors (aka the hadamard product).
 /// Supports broadcasting to a common shape.
-pub fn mul(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
-    const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
+pub fn mul(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) !void {
+    const outShape = try broadcastShape(mat1.shape, mat2.shape);
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
     return opBinaryImpl(ty, struct {
@@ -207,8 +207,8 @@ pub fn mul(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *co
 /// Performs the addition of two tensors
 /// Supports broadcasting to a common shape.
 /// Supports specifying an alpha specifier to scale the added value.
-pub fn add(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), args: struct { alpha: ty = 1 }) void {
-    const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
+pub fn add(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty), args: struct { alpha: ty = 1 }) !void {
+    const outShape = try broadcastShape(mat1.shape, mat2.shape);
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
     const encScalarType = if (@sizeOf(ty) > @sizeOf(u32)) u64 else u32;
@@ -230,8 +230,8 @@ pub fn add(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *co
 
 /// Performs the division of a tensor by another.
 /// Supports broadcasting to a common shape.
-pub fn div(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
-    const outShape = broadcastShape(mat1.shape, mat2.shape) catch unreachable;
+pub fn div(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) !void {
+    const outShape = try broadcastShape(mat1.shape, mat2.shape);
     std.debug.assert(std.meta.eql(outShape, result.shape));
 
     return opBinaryImpl(ty, struct {
@@ -246,7 +246,7 @@ pub fn div(comptime ty: type, device: Device, mat1: *const Tensor(ty), mat2: *co
 }
 
 /// Performs exponentiation on the specified tensor.
-pub fn exp(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn exp(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) !void {
     std.debug.assert(std.meta.eql(mat1.shape, result.shape));
 
     return opUnaryImpl(ty, ty, struct {
@@ -261,7 +261,7 @@ pub fn exp(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *
 }
 
 /// Performs log()
-pub fn log(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn log(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) !void {
     std.debug.assert(std.meta.eql(mat1.shape, result.shape));
 
     return opUnaryImpl(ty, struct {
@@ -290,7 +290,7 @@ pub const ReduceOp = enum {
 };
 
 /// Performs a reduction along the specified axis on the operand tensor.
-pub fn reduce(comptime ty: type, device: Device, comptime op: ReduceOp, mat1: *const Tensor(ty), comptime axis: usize, result: *Tensor(ty)) void {
+pub fn reduce(comptime ty: type, device: Device, comptime op: ReduceOp, mat1: *const Tensor(ty), comptime axis: usize, result: *Tensor(ty)) !void {
     const dispatch_fn = (struct {
         pub fn op_fn(arg: *const Device.Dispatch) void {
             const arg_1: *const Tensor(ty) = @alignCast(@ptrCast(arg.args[0]));
@@ -333,11 +333,11 @@ pub fn reduce(comptime ty: type, device: Device, comptime op: ReduceOp, mat1: *c
     work.args[0] = @ptrCast(@constCast(mat1));
     work.args[1] = @ptrCast(@constCast(result));
 
-    device.dispatch(work, 1) catch unreachable;
+    try device.dispatch(work, 1);
 }
 
 /// Cast a tensor of one type to another.
-pub fn cast(comptime in_ty: type, comptime out_ty: type, device: Device, in: *const Tensor(in_ty), out: *Tensor(out_ty)) void {
+pub fn cast(comptime in_ty: type, comptime out_ty: type, device: Device, in: *const Tensor(in_ty), out: *Tensor(out_ty)) !void {
     std.debug.assert(std.meta.eql(in.shape, out.shape));
     return opUnaryImpl(in_ty, out_ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, out_ty) {
@@ -430,7 +430,7 @@ pub fn argmax(comptime ty: type, in: *const Tensor(ty), comptime axis: usize, re
 
 /// Performs element-wise equality comparision on two tensors.
 /// Stores 1 or 0 in the result tensor.
-pub fn elementWiseEq(comptime ty: type, device: Device, arg1: *const Tensor(ty), arg2: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn elementWiseEq(comptime ty: type, device: Device, arg1: *const Tensor(ty), arg2: *const Tensor(ty), result: *Tensor(ty)) !void {
     return opBinaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype, b: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
@@ -454,7 +454,7 @@ pub fn elementWiseEq(comptime ty: type, device: Device, arg1: *const Tensor(ty),
 // ========== Activation functions as operations ======================
 
 /// Sigmoid activation.
-pub fn sigmoid(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn sigmoid(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) !void {
     return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
@@ -468,7 +468,7 @@ pub fn sigmoid(comptime ty: type, device: Device, mat1: *const Tensor(ty), resul
 }
 
 /// Sigmoid activation backpropagation.
-pub fn sigmoidBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn sigmoidBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) !void {
     return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: *anyopaque, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
@@ -484,7 +484,7 @@ pub fn sigmoidBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty
 }
 
 /// ReLu activation.
-pub fn relu(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn relu(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) !void {
     return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: *anyopaque, a: anytype) @Vector(vectorSize, ty) {
             return @max(a, @as(@Vector(vectorSize, ty), @splat(0)));
@@ -497,7 +497,7 @@ pub fn relu(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: 
 }
 
 /// ReLu activation backpropagation.
-pub fn reluBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn reluBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) !void {
     return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             return @max(std.math.sign(a), @as(@Vector(vectorSize, ty), @splat(0)));
@@ -510,7 +510,7 @@ pub fn reluBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), 
 }
 
 /// SiLu activation aka sigmoid linear unit.
-pub fn silu(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn silu(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) !void {
     return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
@@ -524,7 +524,7 @@ pub fn silu(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: 
 }
 
 /// SiLu derivative.
-pub fn siluBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) void {
+pub fn siluBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *Tensor(ty)) !void {
     return opUnaryImpl(ty, ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
@@ -557,7 +557,7 @@ pub fn mseLoss(comptime ty: type, _: Device, mat1: *const Tensor(ty), result: *c
 }
 
 /// Mean square error loss for backpropagation.
-pub inline fn mseLossBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *const Tensor(ty), out: *Tensor(ty)) void {
+pub inline fn mseLossBackprop(comptime ty: type, device: Device, mat1: *const Tensor(ty), result: *const Tensor(ty), out: *Tensor(ty)) !void {
     return sub(ty, device, mat1, result, out, .{});
 }
 
@@ -576,7 +576,7 @@ pub fn binaryCrossEntropyLoss(comptime ty: type, _: Device, input: *const Tensor
 }
 
 /// Binary cross entropy loss for backpropagation.
-pub fn binaryCrossEntropyLossBackprop(comptime ty: type, device: Device, input: *const Tensor(ty), target: *const Tensor(ty), out: *Tensor(ty)) void {
+pub fn binaryCrossEntropyLossBackprop(comptime ty: type, device: Device, input: *const Tensor(ty), target: *const Tensor(ty), out: *Tensor(ty)) !void {
     return opBinaryImpl(ty, struct {
         pub inline fn simd_func(comptime vectorSize: comptime_int, _: anytype, a: anytype, b: anytype) @Vector(vectorSize, ty) {
             const ones: @Vector(vectorSize, ty) = @splat(1);
@@ -607,13 +607,13 @@ pub fn categoricalCrossEntropyLoss(comptime ty: type, _: Device, input: *const T
 }
 
 /// Categorical cross entropy loss metric for backpropagation.
-pub inline fn categoricalCrossEntropyLossBackprop(comptime ty: type, dev: Device, in: *const Tensor(ty), target: *const Tensor(ty), result: *Tensor(ty)) void {
+pub inline fn categoricalCrossEntropyLossBackprop(comptime ty: type, dev: Device, in: *const Tensor(ty), target: *const Tensor(ty), result: *Tensor(ty)) !void {
     return sub(ty, dev, in, target, result, .{});
 }
 
 // ================== Unary op implementation ================================
 
-fn opUnaryImpl(comptime in_ty: type, comptime out_ty: type, comptime op_funcs: anytype, device: Device, userptr: *anyopaque, mat1: *const Tensor(in_ty), result: *Tensor(out_ty)) void {
+fn opUnaryImpl(comptime in_ty: type, comptime out_ty: type, comptime op_funcs: anytype, device: Device, userptr: *anyopaque, mat1: *const Tensor(in_ty), result: *Tensor(out_ty)) !void {
     const dispatch_fn = (struct {
         pub fn dispatch_fn(dispatch: *const Device.Dispatch) void {
             const arg_1: *const Tensor(in_ty) = @alignCast(@ptrCast(dispatch.args[0]));
@@ -630,7 +630,7 @@ fn opUnaryImpl(comptime in_ty: type, comptime out_ty: type, comptime op_funcs: a
     dispatch.args[1] = @constCast(@ptrCast(result));
     dispatch.args[2] = userptr;
 
-    device.dispatch(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
+    try device.dispatch(dispatch, @max(result.shape.@"0", 1));
 }
 
 inline fn opUnaryImplDispatch(comptime in_ty: type, comptime out_ty: type, comptime op_funcs: anytype, userptr: *anyopaque, mat1: *const Tensor(in_ty), result: *Tensor(out_ty), b: usize) void {
@@ -711,7 +711,7 @@ inline fn opBinaryImplSimdDispatch(comptime ty: type, op_funcs: anytype, userptr
 /// Performs various shape and stride checks on the operand and result tensors to select the most adapted operation implementation and dispatches it.
 /// - If the mat1 or mat2 or result tensors have different shapes, or aren't contiguous in memory, use the broadcasting impl (slow)
 /// - If all shapes are equal and tensors are contiguous, use the SIMD impl (faster)
-fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, device: Device, userpointer: *anyopaque, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) void {
+fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, device: Device, userpointer: *anyopaque, mat1: *const Tensor(ty), mat2: *const Tensor(ty), result: *Tensor(ty)) !void {
     if (mat1.isContiguous() and mat2.isContiguous() and result.isContiguous() and canDoSimd(mat1.shape, mat2.shape) and canDoSimd(mat2.shape, result.shape)) {
         const dispatch_fn = (struct {
             pub fn dispatch_fn(arg: *const Device.Dispatch) void {
@@ -731,7 +731,7 @@ fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, device: Device, u
         dispatch.args[2] = @constCast(@ptrCast(result));
         dispatch.args[3] = @constCast(@ptrCast(userpointer));
 
-        device.dispatch(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
+        try device.dispatch(dispatch, @max(result.shape.@"0", 1));
     } else {
         const dispatch_fn = (struct {
             pub fn dispatch_fn(arg: *const Device.Dispatch) void {
@@ -751,7 +751,7 @@ fn opBinaryImpl(comptime ty: type, comptime op_funcs: anytype, device: Device, u
         dispatch.args[2] = @constCast(@ptrCast(result));
         dispatch.args[3] = @constCast(@ptrCast(userpointer));
 
-        device.dispatch(dispatch, @max(result.shape.@"0", 1)) catch unreachable;
+        try device.dispatch(dispatch, @max(result.shape.@"0", 1));
     }
 }
 
@@ -792,7 +792,7 @@ test "add op test" {
     mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 4.0 });
     mat2.setData(&[_]f32{ 2.0, 2.0 });
 
-    add(f32, Device.DummyDevice, &mat1, &mat2, &mat3, .{});
+    try add(f32, Device.DummyDevice, &mat1, &mat2, &mat3, .{});
     try std.testing.expectEqualSlices(f32, &[_]f32{ 3.0, 4.0, 5.0, 6.0 }, mat3.constSlice());
 }
 
@@ -811,7 +811,7 @@ test "sub op test" {
     mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 4.0 });
     mat2.setData(&[_]f32{ 2.0, 2.0 });
 
-    sub(f32, Device.DummyDevice, &mat1, &mat2, &mat3, .{});
+    try sub(f32, Device.DummyDevice, &mat1, &mat2, &mat3, .{});
     try std.testing.expectEqualSlices(f32, &[_]f32{ -1.0, 0.0, 1.0, 2.0 }, mat3.constSlice());
 }
 
@@ -830,7 +830,7 @@ test "mul op test" {
     mat1.setData(&[_]f32{ 1.0, 2.0, 3.0, 4.0 });
     mat2.setData(&[_]f32{ 2.0, 2.0 });
 
-    mul(f32, Device.DummyDevice, &mat1, &mat2, &mat3);
+    try mul(f32, Device.DummyDevice, &mat1, &mat2, &mat3);
     try std.testing.expectEqualSlices(f32, &[_]f32{ 2.0, 4.0, 6.0, 8.0 }, mat3.constSlice());
 }
 
@@ -848,7 +848,7 @@ test "mat mul broadcasting test" {
     var mat3 = try Tensor(f32).init(.{ 3, 3, 3 }, std.testing.allocator);
     defer mat3.deinit(std.testing.allocator);
 
-    matMul(f32, Device.DummyDevice, &mat1, &mat2, &mat3);
+    try matMul(f32, Device.DummyDevice, &mat1, &mat2, &mat3);
 }
 
 test "tensor axis sum" {
@@ -863,7 +863,7 @@ test "tensor axis sum" {
     var result = try Tensor(f32).init(.{ 0, 3, 3 }, std.testing.allocator);
     defer result.deinit(std.testing.allocator);
 
-    reduce(f32, Device.DummyDevice, .Sum, &mat1, 0, &result); // summing along the batch size
+    try reduce(f32, Device.DummyDevice, .Sum, &mat1, 0, &result); // summing along the batch size
     try std.testing.expectEqualSlices(f32, &[_]f32{ 27.0, 30.0, 33.0, 36.0, 39.0, 42.0, 45.0, 48.0, 51.0 }, result.constSlice());
 }
 
@@ -876,7 +876,7 @@ test "tensor casting" {
     for (mat1.slice(), 0..) |*value, i|
         value.* = @floatFromInt(i);
 
-    cast(f32, u8, Device.DummyDevice, &mat1, &mat2);
+    try cast(f32, u8, Device.DummyDevice, &mat1, &mat2);
 
     for (mat2.constSlice(), 0..) |value, i|
         try std.testing.expectEqual(@as(u8, @intCast(i)), value);
@@ -910,7 +910,7 @@ test "tensor element wise equal" {
 
     var res = try Tensor(f32).init(mat1.shape, std.testing.allocator);
     defer res.deinit(std.testing.allocator);
-    elementWiseEq(f32, Device.DummyDevice, &mat1, &mat2, &res);
+    try elementWiseEq(f32, Device.DummyDevice, &mat1, &mat2, &res);
 
     const result = &[_]f32{ 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0 };
     try std.testing.expectEqualSlices(f32, @constCast(result), res.constSlice());
