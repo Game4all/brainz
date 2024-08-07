@@ -129,7 +129,10 @@ pub fn Tensor(dtype: type) type {
                 for (0..@max(shape[1], 1)) |i| {
                     try writer.print("   [", .{});
                     for (0..@max(shape[2], 1)) |j| {
-                        _ = try writer.print(" {e:.03}", .{dat.get(.{ h, i, j })});
+                        switch (@typeInfo(dtype)) {
+                            .Float => |_| try writer.print(" {e:.03}", .{dat.get(.{ h, i, j })}),
+                            else => |_| try writer.print(" {}", .{dat.get(.{ h, i, j })}),
+                        }
                         _ = try writer.write(",");
                     }
                     try writer.print(" ],\n\r", .{});
