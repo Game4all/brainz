@@ -8,10 +8,14 @@ pub const ops = @import("ops.zig");
 
 pub const Device = @import("device/Device.zig");
 
-/// The default, preferred device to use on the target
+/// A dummy single-threaded device.
+/// Available on all platforms.
+pub const dummy_device = Device.DummyDevice;
+
+/// The preferred high performance device to use on the current compilation target.
 pub const default_device = switch (builtin.target.cpu.arch) {
-    .wasm32, .wasm64 => Device.DummyDevice,
-    else => @import("device/CpuDevice.zig"),
+    .x86_64, .x86, .aarch64 => @import("device/CpuDevice.zig"),
+    else => dummy_device,
 };
 
 pub const Dense = @import("dense.zig").Dense;
