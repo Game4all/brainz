@@ -96,7 +96,7 @@ pub fn main() !void {
     const alloc = arena.allocator();
     var mlp: XorMLP = undefined;
 
-    const device = Device.DummyDevice;
+    const device = brainz.dummy_device;
 
     var expected_mat = try Tensor(f32).initFromSlice(mlp.outputShape(), @constCast(@ptrCast(&[_][1]f32{
         [1]f32{0.0},

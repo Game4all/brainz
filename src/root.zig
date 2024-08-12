@@ -12,8 +12,8 @@ pub const Device = @import("device/Device.zig");
 /// Available on all platforms.
 pub const dummy_device = Device.DummyDevice;
 
-/// The preferred high performance device to use on the current compilation target.
-pub const default_device = switch (builtin.target.cpu.arch) {
+/// The preferred high performance device type to use on the current compilation target.
+pub const preferred_device_type = switch (builtin.target.cpu.arch) {
     .x86_64, .x86, .aarch64 => @import("device/CpuDevice.zig"),
     else => dummy_device,
 };

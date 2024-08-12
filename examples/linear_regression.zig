@@ -13,7 +13,7 @@ pub fn main() !void {
 
     const alloc = arena.allocator();
 
-    const device = Device.DummyDevice;
+    const device = brainz.dummy_device;
 
     var dense: brainz.Dense(1, 1, 4, brainz.activation.Linear) = undefined;
     try dense.init(alloc);

@@ -32,7 +32,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(gpa.allocator());
     defer arena.deinit();
 
-    var device: brainz.default_device = .{};
+    var device: brainz.preferred_device_type = .{};
     try device.init(arena.allocator(), 3);
     defer device.deinit();
 
