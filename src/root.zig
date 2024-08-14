@@ -1,11 +1,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+/// Available activation functions.
 pub const activation = @import("activation.zig");
-
-pub const tensor = @import("tensor.zig");
+/// Available tensor operations.
 pub const ops = @import("ops.zig");
 
+const tensor = @import("tensor.zig");
+
+/// Represents a logical device capable of dispatching compute operations.
 pub const Device = @import("device/Device.zig");
 
 /// A dummy single-threaded device.
@@ -19,9 +22,7 @@ pub const preferred_device_type = switch (builtin.target.cpu.arch) {
 };
 
 pub const Dense = @import("dense.zig").Dense;
-
 pub const Tensor = tensor.Tensor;
-pub const TensorArena = tensor.Arena;
 
 comptime {
     std.testing.refAllDeclsRecursive(tensor);
