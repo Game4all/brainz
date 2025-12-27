@@ -68,7 +68,13 @@ pub const Dtype = enum {
     usize64,
 };
 
-/// A view over a slice of memory for computation. Essentialy, a multi dimensional matrix.
+const dtype_to_size = std.enums.EnumArray(Dtype, usize).init(.{
+    .float32 = @sizeOf(f32),
+    .float64 = @sizeOf(f64),
+    .usize64 = @sizeOf(u64),
+});
+
+/// Represents a logical tensor (essentially a multi-dimensional matrix) which may be backed by physical memory.
 pub const Tensor = struct {
     /// tensor shape
     shape: Shape,
@@ -76,76 +82,81 @@ pub const Tensor = struct {
     strides: Shape.Strides,
     /// tensor data type
     dtype: Dtype,
-    /// pointer to tensor data
-    data_ptr: *anyopaque,
+    /// pointer to the storage backing that tensor
+    storage: ?*anyopaque,
     /// pointer to gradient tensor if one is computed for this tensor
     grad: ?*Tensor,
+    /// Pointer to the parent tensor, if a view.
+    parent_view: ?*Tensor,
 
-    /// Returns a typed pointer to underlying data.
-    /// **The function may panic if the requested type is different from the tensor underlying data type**
-    pub fn getData(self: *@This(), comptime ty: type) []ty {
-        const target_dtype = switch (@typeInfo(ty)) {
-            .float => |info| if (info.bits == 32) Dtype.float32 else Dtype.float64,
-            .int => |info| if (info.bits == 64) Dtype.usize64 else @compileError("Unsupported integer type"),
-            else => @compileError("Unsupported type for tensor data"),
-        };
+    /// Returns whether a Tensor is a view of another tensor.
+    pub inline fn is_view(self: *const Tensor) bool {
+        return self.parent_view != null;
+    }
 
-        if (self.dtype != target_dtype) @panic("Tensor dtype mismatch");
-
-        const totalLength = self.shape.totalLength();
-
-        const slice: [*]ty = @ptrCast(@alignCast(self.data_ptr));
-        return slice[0..totalLength];
+    /// Returns whether this tensor is backed by memory to be used in computation.
+    pub inline fn has_storage(self: *const Tensor) bool {
+        return self.storage != null;
     }
 };
 
 /// Manages tensor allocation and storage
 pub const TensorArena = struct {
-    /// inner arena allocator
-    inner_arena: std.heap.ArenaAllocator,
+    allocator: std.mem.Allocator,
+    tensors: std.ArrayList(*Tensor),
 
-    pub fn init(allocator: std.mem.Allocator) TensorArena {
-        return TensorArena{
-            .inner_arena = std.heap.ArenaAllocator.init(allocator),
-        };
+    pub inline fn init(allocator: std.mem.Allocator) TensorArena {
+        return TensorArena{ .allocator = allocator, .tensors = .empty };
     }
 
+    /// Frees all allocations made (including tensors + allocated storages)
     pub fn deinit(self: *TensorArena) void {
-        self.inner_arena.deinit();
+        for (self.tensors.items) |tensor| {
+            if (tensor.is_view()) continue;
+
+            if (tensor.storage) |storage| {
+                //FIXME: fix storage freeing
+                const byte_size: usize = tensor.shape.totalLength() * dtype_to_size.get(tensor.dtype);
+                const typed_storage = @as([*]u8, @ptrCast(storage));
+                self.allocator.free(typed_storage[0..byte_size]);
+            }
+        }
+        self.tensors.deinit(self.allocator);
     }
 
-    /// Creates a new tensor of specified data type and shape and allocates its storage.
-    pub fn create(self: *TensorArena, dtype: Dtype, shape: Shape) !*Tensor {
-        const totalElements = shape.totalLength();
-
-        const elemSize: usize = switch (dtype) {
-            .float32 => @sizeOf(f32),
-            .float64 => @sizeOf(f64),
-            .usize64 => @sizeOf(u64),
-        };
-
-        const allocator = self.inner_arena.allocator();
-
-        const buffer = try allocator.alloc(u8, totalElements * elemSize);
-
-        const tensor = try allocator.create(Tensor);
+    /// Creates a new tensor of specified data type and shape.
+    pub fn makeTensor(self: *TensorArena, dtype: Dtype, shape: Shape) !*Tensor {
+        const tensor = try self.allocator.create(Tensor);
         tensor.* = Tensor{
             .shape = shape,
             .strides = shape.layoutStrides(),
             .dtype = dtype,
-            .data_ptr = @ptrCast(buffer.ptr),
+            .storage = null,
             .grad = null,
+            .parent_view = null,
         };
+
+        try self.tensors.append(self.allocator, tensor);
 
         return tensor;
     }
 
-    /// Creates a tensor that aliases the storage of another tensor.
-    pub fn createAliased(self: *TensorArena, tensor: *Tensor) !*Tensor {
-        const allocator = self.inner_arena.allocator();
-        const alias = try allocator.create(Tensor);
-        alias.* = tensor.*;
-        return alias;
+    /// Creates a new tensor as a view of a parent tensor.
+    pub fn makeView(self: *TensorArena, parent: *const Tensor, shape: Shape) !*Tensor {
+        const tensor = try self.makeTensor(parent.dtype, shape);
+        tensor.parent_view = @constCast(parent);
+        return tensor;
+    }
+
+    /// Allocates backing storage for all non-view tensors
+    pub fn allocateStorage(self: *TensorArena) !void {
+        for (self.tensors.items) |tensor| {
+            if (tensor.is_view()) continue;
+
+            const byte_size: usize = tensor.shape.totalLength() * dtype_to_size.get(tensor.dtype);
+            const storage = try self.allocator.alloc(u8, byte_size);
+            tensor.storage = storage.ptr;
+        }
     }
 };
 
@@ -187,15 +198,20 @@ test "Shape.Stride computed layouts are fine" {
     try std.testing.expectEqual(1, strides[2]);
 }
 
-test "TensorArena + Tensor allocation works" {
-    var arena = TensorArena.init(std.testing.allocator);
-    defer arena.deinit();
+test "TensorArena test" {
+    var memArena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer memArena.deinit();
 
-    var tensor = try arena.create(.float32, comptime .fromSlice(&.{ 2, 3, 4 }));
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
 
-    try std.testing.expectEqual(3, tensor.shape.n_dimensions);
-    try std.testing.expectEqual(24, tensor.shape.totalLength());
+    const tensor1 = try tensorArena.makeTensor(.float32, comptime .fromSlice(&.{ 2, 3 }));
+    const view1 = try tensorArena.makeView(tensor1, comptime .fromSlice(&.{ 3, 2 }));
 
-    const data: []f32 = tensor.getData(f32);
-    try std.testing.expectEqual(tensor.shape.totalLength(), data.len);
+    _ = view1;
+
+    try tensorArena.allocateStorage();
+
+    try std.testing.expect(tensorArena.tensors.items[0].storage != null);
+    try std.testing.expect(tensorArena.tensors.items[1].storage == null);
 }
