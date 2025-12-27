@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 /// Describes the shape of a tensor or an operation.
 pub const Shape = struct {
@@ -102,10 +103,10 @@ pub const Tensor = struct {
 
 /// Manages tensor allocation and storage
 pub const TensorArena = struct {
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     tensors: std.ArrayList(*Tensor),
 
-    pub inline fn init(allocator: std.mem.Allocator) TensorArena {
+    pub inline fn init(allocator: Allocator) TensorArena {
         return TensorArena{ .allocator = allocator, .tensors = .empty };
     }
 
