@@ -99,6 +99,21 @@ pub const Tensor = struct {
     pub inline fn has_storage(self: *const Tensor) bool {
         return self.storage != null;
     }
+
+    fn getRawStorage(self: *const Tensor) ?*anyopaque {
+        if (self.storage) |s| return s;
+        if (self.parent_view) |p| return p.getRawStorage();
+        return null;
+    }
+
+    //todo: enforce type safety
+    /// Returns the tensor storage as a slice of the specified type.
+    pub fn slice(self: *const Tensor, comptime T: type) ?[]T {
+        const storage = self.getRawStorage() orelse return null;
+        const ptr: [*]T = @ptrCast(@alignCast(storage));
+        const sl = ptr[0..self.shape.totalLength()];
+        return sl;
+    }
 };
 
 /// Manages tensor allocation and storage
@@ -209,9 +224,13 @@ test "TensorArena test" {
     const tensor1 = try tensorArena.makeTensor(.float32, comptime .fromSlice(&.{ 2, 3 }));
     const view1 = try tensorArena.makeView(tensor1, comptime .fromSlice(&.{ 3, 2 }));
 
-    _ = view1;
-
     try tensorArena.allocateStorage();
+
+    const slice = tensor1.slice(f32) orelse return error.SliceFailed;
+    @memset(slice, 123);
+
+    const viewSlice: []const f32 = view1.slice(f32) orelse return error.SliceFailed;
+    try std.testing.expectEqual(123, viewSlice[0]);
 
     try std.testing.expect(tensorArena.tensors.items[0].storage != null);
     try std.testing.expect(tensorArena.tensors.items[1].storage == null);
