@@ -85,18 +85,20 @@ pub const Tensor = struct {
     dtype: Dtype,
     /// pointer to the storage backing that tensor
     storage: ?*anyopaque,
+    /// whether this tensor requires computing gradients.
+    requires_grad: bool,
     /// pointer to gradient tensor if one is computed for this tensor
     grad: ?*Tensor,
     /// Pointer to the parent tensor, if a view.
     parent_view: ?*Tensor,
 
     /// Returns whether a Tensor is a view of another tensor.
-    pub inline fn is_view(self: *const Tensor) bool {
+    pub inline fn isView(self: *const Tensor) bool {
         return self.parent_view != null;
     }
 
     /// Returns whether this tensor is backed by memory to be used in computation.
-    pub inline fn has_storage(self: *const Tensor) bool {
+    pub inline fn hasStorage(self: *const Tensor) bool {
         return self.storage != null;
     }
 
@@ -128,7 +130,7 @@ pub const TensorArena = struct {
     /// Frees all allocations made (including tensors + allocated storages)
     pub fn deinit(self: *TensorArena) void {
         for (self.tensors.items) |tensor| {
-            if (tensor.is_view()) continue;
+            if (tensor.isView()) continue;
 
             if (tensor.storage) |storage| {
                 //FIXME: fix storage freeing
@@ -141,13 +143,14 @@ pub const TensorArena = struct {
     }
 
     /// Creates a new tensor of specified data type and shape.
-    pub fn makeTensor(self: *TensorArena, dtype: Dtype, shape: Shape) !*Tensor {
+    pub fn makeTensor(self: *TensorArena, dtype: Dtype, shape: Shape, requires_grad: bool) !*Tensor {
         const tensor = try self.allocator.create(Tensor);
         tensor.* = Tensor{
             .shape = shape,
             .strides = shape.layoutStrides(),
             .dtype = dtype,
             .storage = null,
+            .requires_grad = requires_grad,
             .grad = null,
             .parent_view = null,
         };
@@ -159,7 +162,7 @@ pub const TensorArena = struct {
 
     /// Creates a new tensor as a view of a parent tensor.
     pub fn makeView(self: *TensorArena, parent: *const Tensor, shape: Shape) !*Tensor {
-        const tensor = try self.makeTensor(parent.dtype, shape);
+        const tensor = try self.makeTensor(parent.dtype, shape, false);
         tensor.parent_view = @constCast(parent);
         return tensor;
     }
@@ -167,7 +170,7 @@ pub const TensorArena = struct {
     /// Allocates backing storage for all non-view tensors
     pub fn allocateStorage(self: *TensorArena) !void {
         for (self.tensors.items) |tensor| {
-            if (tensor.is_view()) continue;
+            if (tensor.isView()) continue;
 
             const byte_size: usize = tensor.shape.totalLength() * dtype_to_size.get(tensor.dtype);
             const storage = try self.allocator.alloc(u8, byte_size);
@@ -221,7 +224,7 @@ test "TensorArena test" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    const tensor1 = try tensorArena.makeTensor(.float32, comptime .fromSlice(&.{ 2, 3 }));
+    const tensor1 = try tensorArena.makeTensor(.float32, comptime .fromSlice(&.{ 2, 3 }), false);
     const view1 = try tensorArena.makeView(tensor1, comptime .fromSlice(&.{ 3, 2 }));
 
     try tensorArena.allocateStorage();
