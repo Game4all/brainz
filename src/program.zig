@@ -104,7 +104,8 @@ const Program = struct {
     }
 
     /// Finalizes a program for execution.
-    /// `backprop` indicates whether to allocate gradient tensors for backpropagation.
+    /// # Args
+    /// - `backprop`: indicates whether to allocate gradient tensors for backpropagation.
     pub fn compile(self: *@This(), backprop: bool) !void {
         if (self.flags.finalized)
             return error.AlreadyFinalized;
