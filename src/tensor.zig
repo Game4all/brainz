@@ -88,9 +88,9 @@ pub const Tensor = struct {
     /// whether this tensor requires computing gradients.
     requires_grad: bool,
     /// pointer to gradient tensor if one is computed for this tensor
-    grad: ?*Tensor,
+    grad: ?*const Tensor,
     /// Pointer to the parent tensor, if a view.
-    parent_view: ?*Tensor,
+    parent_view: ?*const Tensor,
 
     /// Returns whether a Tensor is a view of another tensor.
     pub inline fn isView(self: *const Tensor) bool {
@@ -118,7 +118,7 @@ pub const Tensor = struct {
     }
 };
 
-/// Manages tensor allocation and storage
+/// Tracks tensor lifetimes and manages view aliasing for a single graph, enabling efficient allocation and reuse of tensors' backing memory.
 pub const TensorArena = struct {
     allocator: Allocator,
     tensors: std.ArrayList(*Tensor),
@@ -143,7 +143,7 @@ pub const TensorArena = struct {
     }
 
     /// Creates a new tensor of specified data type and shape.
-    pub fn makeTensor(self: *TensorArena, dtype: Dtype, shape: Shape, requires_grad: bool) !*Tensor {
+    pub fn makeTensor(self: *TensorArena, dtype: Dtype, shape: Shape, requires_grad: bool) !*const Tensor {
         const tensor = try self.allocator.create(Tensor);
         tensor.* = Tensor{
             .shape = shape,
@@ -161,13 +161,16 @@ pub const TensorArena = struct {
     }
 
     /// Creates a new tensor as a view of a parent tensor.
-    pub fn makeView(self: *TensorArena, parent: *const Tensor, shape: Shape) !*Tensor {
+    pub fn makeView(self: *TensorArena, parent: *const Tensor, shape: Shape) !*const Tensor {
         const tensor = try self.makeTensor(parent.dtype, shape, false);
-        tensor.parent_view = @constCast(parent);
+        const T: *Tensor = @constCast(tensor);
+        T.parent_view = parent;
         return tensor;
     }
 
-    /// Allocates backing storage for all non-view tensors
+    /// Allocates backing storage for all non-view tensors in the arena.
+    /// # Note
+    /// You should ONLY call that after finalizing your compute plan(s) to allocate memory for the tensors storage.
     pub fn allocateStorage(self: *TensorArena) !void {
         for (self.tensors.items) |tensor| {
             if (tensor.isView()) continue;
@@ -227,13 +230,19 @@ test "TensorArena test" {
     const tensor1 = try tensorArena.makeTensor(.float32, comptime .fromSlice(&.{ 2, 3 }), false);
     const view1 = try tensorArena.makeView(tensor1, comptime .fromSlice(&.{ 3, 2 }));
 
-    try tensorArena.allocateStorage();
+    try std.testing.expectEqual(null, tensor1.slice(f32)); // storage should be null until this point since no backing memory has been allocated
 
-    const slice = tensor1.slice(f32) orelse return error.SliceFailed;
-    @memset(slice, 123);
+    try tensorArena.allocateStorage(); // bam, we allocate storage for all tensors
 
-    const viewSlice: []const f32 = view1.slice(f32) orelse return error.SliceFailed;
-    try std.testing.expectEqual(123, viewSlice[0]);
+    const slice = tensor1.slice(f32);
+
+    try std.testing.expect(slice != null); // storage should now exist
+    @memset(slice.?, 123);
+
+    const viewSlice = view1.slice(f32);
+    try std.testing.expect(viewSlice != null);
+
+    try std.testing.expectEqual(123, viewSlice.?[0]);
 
     try std.testing.expect(tensorArena.tensors.items[0].storage != null);
     try std.testing.expect(tensorArena.tensors.items[1].storage == null);
