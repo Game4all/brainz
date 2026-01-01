@@ -9,7 +9,9 @@ const Allocator = std.mem.Allocator;
 
 /// Represents a virtual table for operations.
 pub const OpInfo = struct {
+    /// Performs the forward pass for the specified operation, writing the result into the `output` tensor.
     forward: *const fn (inputs: []const *const Tensor, output: *const Tensor, extra_data: ?*anyopaque) anyerror!void,
+    /// Performs the backward pass for the specified operation, writing the gradients into the input tensors from the `grad_output` tensor (which is the gradient of the output tensor `output.grad`)
     backward: *const fn (inputs: []const *const Tensor, output: *const Tensor, grad_output: *const Tensor, extra_data: ?*anyopaque) anyerror!void,
     /// The user-visible name of the operation for debugging purposes
     name: [:0]const u8,
