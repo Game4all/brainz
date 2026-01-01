@@ -17,10 +17,15 @@ pub const OpInfo = struct {
 
 /// Represents an operation in the linear program.
 const OpNode = struct {
+    /// Max number of allowed inputs for a single operation
+    const MAX_INPUTS = 2;
+
     /// Information + VTable about the operation
     op_info: *const OpInfo,
     /// Inputs of the operation
-    inputs: []const *const Tensor,
+    inputs: [MAX_INPUTS]*const Tensor,
+    /// Numbers of input tensors
+    n_inputs: usize = 0,
     /// Output of the operation
     output: *const Tensor,
     /// Pointer to additional extra data for the op.
@@ -61,8 +66,23 @@ pub const Program = struct {
     }
 
     /// Appends an operation to the program
-    pub fn append(self: *@This(), node: OpNode) !void {
+    pub fn append(self: *@This(), op_info: *const OpInfo, inputs: []*const Tensor, out: *const Tensor, extra: ?*anyopaque) !void {
         if (self.flags.finalized) return error.ProgramIsFinalized;
+        if (inputs.len >= OpNode.MAX_INPUTS) {
+            if (@inComptime()) {
+                @compileError(std.fmt.comptimePrint("Expected at most {} inputs, got {} inputs instead.", .{ OpNode.MAX_INPUTS, inputs.len }));
+            } else {
+                return error.TooManyInputs;
+            }
+        }
+
+        var node: OpNode = undefined;
+        node.n_inputs = inputs.len;
+        node.output = out;
+        node.op_info = op_info;
+        node.extra_data = extra;
+        @memcpy(node.inputs[0..@min(OpNode.MAX_INPUTS, inputs.len)], inputs);
+
         try self.ops.append(self.allocator, node);
     }
 
@@ -95,7 +115,7 @@ pub const Program = struct {
     }
 
     /// Creates a tensor as an output and registers it with the program
-    pub fn createOutput(self: *@This(), output_name: []const u8, shape: Shape, dtype: Dtype, require_grad: bool) !*const Tensor {
+    pub fn createOutput(self: *@This(), output_name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) !*const Tensor {
         if (self.flags.finalized) return error.ProgramIsFinalized;
         const t = try self.arena.makeTensor(dtype, shape, require_grad);
         try self.prog_outputs.put(self.allocator, output_name, t);
@@ -147,7 +167,7 @@ pub const Program = struct {
 
         for (self.ops.items) |op_node| {
             try op_node.op_info.forward(
-                op_node.inputs,
+                op_node.inputs[0..op_node.n_inputs],
                 op_node.output,
                 op_node.extra_data,
             );
@@ -175,8 +195,11 @@ test "creating an empty program" {
     defer program.deinit();
 
     _ = try program.createInput("input", .float32, comptime .fromSlice(&.{ 2, 3, 4 }), false);
+    _ = try program.createOutput("output", .float32, comptime .fromSlice(&.{ 2, 3, 4 }), false);
 
     const i = program.getInput("input");
+    const o = program.getOutput("output");
 
     try std.testing.expect(i != null);
+    try std.testing.expect(o != null);
 }
