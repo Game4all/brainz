@@ -67,6 +67,14 @@ pub const Dtype = enum {
     float32,
     float64,
     usize64,
+
+    /// Returns whether the current Dtype is a floating point type
+    pub fn isFloatingPoint(self: Dtype) bool {
+        return switch (self) {
+            .float32, .float64 => true,
+            else => false,
+        };
+    }
 };
 
 const dtype_to_size = std.enums.EnumArray(Dtype, usize).init(.{

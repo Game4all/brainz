@@ -185,10 +185,6 @@ pub const Program = struct {
         while (i > 0) {
             i -= 1;
             const op_node = self.ops.items[i];
-
-            // If output has no gradient, we can't propagate back.
-            // (Assuming that if it requires grad, it should have one allocated,
-            // unless it's a leaf that didn't get one? But finalize should ensure it).
             if (op_node.output.grad) |grad_output| {
                 try op_node.op_info.backward(
                     op_node.inputs[0..op_node.n_inputs],
