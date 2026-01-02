@@ -1,6 +1,8 @@
 const std = @import("std");
 const tensor = @import("tensor.zig");
 const prog = @import("program.zig");
+const elemwise_ops = @import("ops/elemwise.zig");
+const matmul_ops = @import("ops/matmul.zig");
 
 const Tensor = tensor.Tensor;
 const TensorArena = tensor.TensorArena;
@@ -12,154 +14,36 @@ const Program = prog.Program;
 const OPS = struct {
     pub const ADD: OpInfo = .{
         .name = "Add",
-        .forward = forwardAdd,
-        .backward = backwardAdd,
+        .forward = elemwise_ops.forwardAdd,
+        .backward = elemwise_ops.backwardAdd,
     };
 
     pub const SUB: OpInfo = .{
         .name = "Sub",
-        .forward = forwardSub,
-        .backward = backwardSub,
+        .forward = elemwise_ops.forwardSub,
+        .backward = elemwise_ops.backwardSub,
     };
 
     pub const MUL: OpInfo = .{
         .name = "Mul",
-        .forward = forwardMul,
-        .backward = backwardMul,
+        .forward = elemwise_ops.forwardMul,
+        .backward = elemwise_ops.backwardMul,
     };
 
     pub const DIV: OpInfo = .{
         .name = "Div",
-        .forward = forwardDiv,
-        .backward = backwardDiv,
+        .forward = elemwise_ops.forwardDiv,
+        .backward = elemwise_ops.backwardDiv,
+    };
+
+    pub const MATMUL: OpInfo = .{
+        .name = "MatMul",
+        .forward = matmul_ops.forwardMatMul,
+        .backward = matmul_ops.backwardMatMul,
     };
 };
 
-/// Performs a generic, element-wise operation on two tensors writing the result to an output tensor.
-fn elementWiseForward(inputs: []const *const Tensor, output: *const Tensor, comptime op: anytype) !void {
-    const a = inputs[0];
-    const b = inputs[1];
-
-    if (!output.dtype.isFloatingPoint()) return error.UnsupportedDtype; // int types do not support element-wise operations for now
-
-    switch (output.dtype) {
-        .float32 => {
-            const outSlice = output.slice(f32).?;
-            const aSlice = a.slice(f32).?;
-            const bSlice = b.slice(f32).?;
-            for (outSlice, 0..) |*v, i| {
-                v.* = op(aSlice[i], bSlice[i]);
-            }
-        },
-        .float64 => {
-            const outSlice = output.slice(f64).?;
-            const aSlice = a.slice(f64).?;
-            const bSlice = b.slice(f64).?;
-            for (outSlice, 0..) |*v, i| {
-                v.* = op(aSlice[i], bSlice[i]);
-            }
-        },
-        else => {},
-    }
-}
-
-/// Performs a generic, element-wise backward pass writing the results to the gradients of the input tensors.
-fn elementWiseBackward(inputs: []const *const Tensor, output: *const Tensor, gradOutput: *const Tensor, comptime gradOp: anytype) !void {
-    _ = output;
-    const a = inputs[0];
-    const b = inputs[1];
-
-    if (!gradOutput.dtype.isFloatingPoint()) return error.UnsupportedDtype; // int types do not support element-wise operations for now
-
-    switch (gradOutput.dtype) {
-        .float32 => {
-            const gradOutSlice = gradOutput.slice(f32).?;
-
-            // the computation of some gradients require having both inputs at hand
-            const aSlice = a.slice(f32).?;
-            const bSlice = b.slice(f32).?;
-
-            const aGradSlice = if (a.grad) |g| g.slice(f32) else null;
-            const bGradSlice = if (b.grad) |g| g.slice(f32) else null;
-
-            if (aGradSlice == null and bGradSlice == null) return;
-
-            for (gradOutSlice, 0..) |gCommon, i| {
-                const grads = gradOp(gCommon, aSlice[i], bSlice[i]);
-                // grads is a struct { da: T, db: T }
-
-                if (aGradSlice) |gs| gs[i] += grads.da;
-                if (bGradSlice) |gs| gs[i] += grads.db;
-            }
-        },
-        .float64 => {
-            const gradOutSlice = gradOutput.slice(f64).?;
-            const aSlice = a.slice(f64).?;
-            const bSlice = b.slice(f64).?;
-
-            const aGradSlice = if (a.grad) |g| g.slice(f64) else null;
-            const bGradSlice = if (b.grad) |g| g.slice(f64) else null;
-
-            if (aGradSlice == null and bGradSlice == null) return;
-
-            for (gradOutSlice, 0..) |gCommon, i| {
-                const grads = gradOp(gCommon, aSlice[i], bSlice[i]);
-
-                if (aGradSlice) |gs| gs[i] += grads.da;
-                if (bGradSlice) |gs| gs[i] += grads.db;
-            }
-        },
-        else => {},
-    }
-}
-
-// Op functions
-inline fn addOp(a: anytype, b: anytype) @TypeOf(a) {
-    return a + b;
-}
-inline fn subOp(a: anytype, b: anytype) @TypeOf(a) {
-    return a - b;
-}
-inline fn mulOp(a: anytype, b: anytype) @TypeOf(a) {
-    return a * b;
-}
-inline fn divOp(a: anytype, b: anytype) @TypeOf(a) {
-    return a / b;
-}
-
-// Grad Op functions (Backward)
-// Returns struct { da: T, db: T }
-inline fn addGradOp(gradOut: anytype, a: anytype, b: anytype) struct { da: @TypeOf(gradOut), db: @TypeOf(gradOut) } {
-    _ = a;
-    _ = b;
-    return .{ .da = gradOut, .db = gradOut };
-}
-
-inline fn subGradOp(gradOut: anytype, a: anytype, b: anytype) struct { da: @TypeOf(gradOut), db: @TypeOf(gradOut) } {
-    _ = a;
-    _ = b;
-    return .{ .da = gradOut, .db = -gradOut };
-}
-
-inline fn mulGradOp(gradOut: anytype, a: anytype, b: anytype) struct { da: @TypeOf(gradOut), db: @TypeOf(gradOut) } {
-    return .{ .da = gradOut * b, .db = gradOut * a };
-}
-
-inline fn divGradOp(gradOut: anytype, a: anytype, b: anytype) struct { da: @TypeOf(gradOut), db: @TypeOf(gradOut) } {
-    const invB = 1.0 / b;
-    return .{ .da = gradOut * invB, .db = gradOut * (-a * (invB * invB)) };
-}
-
-// --- Add ---
-fn forwardAdd(inputs: []const *const Tensor, output: *const Tensor, extraData: ?*anyopaque) !void {
-    _ = extraData;
-    try elementWiseForward(inputs, output, addOp);
-}
-
-fn backwardAdd(inputs: []const *const Tensor, output: *const Tensor, gradOutput: *const Tensor, extraData: ?*anyopaque) !void {
-    _ = extraData;
-    try elementWiseBackward(inputs, output, gradOutput, addGradOp);
-}
+// ======================== Binary element-wise operations ==============================
 
 pub fn add(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
     if (!a.shape.eql(b.shape)) return error.ShapeMismatch;
@@ -169,17 +53,6 @@ pub fn add(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor
     const inputs = [_]*const Tensor{ a, b };
     try program.append(&OPS.ADD, &inputs, out, null);
     return out;
-}
-
-// --- Sub ---
-fn forwardSub(inputs: []const *const Tensor, output: *const Tensor, extraData: ?*anyopaque) !void {
-    _ = extraData;
-    try elementWiseForward(inputs, output, subOp);
-}
-
-fn backwardSub(inputs: []const *const Tensor, output: *const Tensor, gradOutput: *const Tensor, extraData: ?*anyopaque) !void {
-    _ = extraData;
-    try elementWiseBackward(inputs, output, gradOutput, subGradOp);
 }
 
 pub fn sub(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
@@ -192,17 +65,6 @@ pub fn sub(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor
     return out;
 }
 
-// --- Mul ---
-fn forwardMul(inputs: []const *const Tensor, output: *const Tensor, extraData: ?*anyopaque) !void {
-    _ = extraData;
-    try elementWiseForward(inputs, output, mulOp);
-}
-
-fn backwardMul(inputs: []const *const Tensor, output: *const Tensor, gradOutput: *const Tensor, extraData: ?*anyopaque) !void {
-    _ = extraData;
-    try elementWiseBackward(inputs, output, gradOutput, mulGradOp);
-}
-
 pub fn mul(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
     if (!a.shape.eql(b.shape)) return error.ShapeMismatch;
     if (a.dtype != b.dtype) return error.DtypeMismatch;
@@ -211,17 +73,6 @@ pub fn mul(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor
     const inputs = [_]*const Tensor{ a, b };
     try program.append(&OPS.MUL, &inputs, out, null);
     return out;
-}
-
-// --- Div ---
-fn forwardDiv(inputs: []const *const Tensor, output: *const Tensor, extraData: ?*anyopaque) !void {
-    _ = extraData;
-    try elementWiseForward(inputs, output, divOp);
-}
-
-fn backwardDiv(inputs: []const *const Tensor, output: *const Tensor, gradOutput: *const Tensor, extraData: ?*anyopaque) !void {
-    _ = extraData;
-    try elementWiseBackward(inputs, output, gradOutput, divGradOp);
 }
 
 pub fn div(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
@@ -233,6 +84,22 @@ pub fn div(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor
     try program.append(&OPS.DIV, &inputs, out, null);
     return out;
 }
+
+pub fn matmul(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
+    // only 2D tensors are supported for now
+    if (a.shape.n_dimensions != 2 or b.shape.n_dimensions != 2) return error.ShapeMismatch;
+    if (a.shape.dimensions[1] != b.shape.dimensions[0]) return error.ShapeMismatch;
+    if (a.dtype != b.dtype) return error.DtypeMismatch;
+
+    const M = a.shape.dimensions[0];
+    const K = b.shape.dimensions[1];
+
+    const out = try program.arena.makeTensor(a.dtype, .fromSlice(&.{ M, K }), a.requires_grad or b.requires_grad);
+    try program.append(&OPS.MATMUL, &.{ a, b }, out, null);
+    return out;
+}
+
+// ============================== Tests =====================================
 
 const testing = std.testing;
 
@@ -543,6 +410,108 @@ test "op: div backward" {
 
     // d(a/b)/da = 1/b = 1/2 = 0.5
     try testing.expectEqual(0.5, aGradSlice[0]);
-    // d(a/b)/db = -a/b^2 = -8/4 = -2
     try testing.expectEqual(-2.0, bGradSlice[0]);
+}
+
+test "op: matmul forward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var program: Program = .init(&tensorArena, memArena.allocator());
+    defer program.deinit();
+
+    const shapeA: Shape = comptime .fromSlice(&.{ 2, 3 });
+    const a = try program.createInput("a", .float32, shapeA, false);
+
+    const shapeB: Shape = comptime .fromSlice(&.{ 3, 2 });
+    const b = try program.createInput("b", .float32, shapeB, false);
+
+    // (2,3) * (3,2) gives a (2,2) matrix
+    const c = try matmul(&program, a, b);
+    try testing.expectEqual(Shape.fromSlice(&.{ 2, 2 }), c.shape);
+
+    try program.registerOutput("c", c);
+
+    try program.finalize(false);
+    try tensorArena.allocateStorage();
+
+    // [[1, 2, 3],
+    //  [4, 5, 6]]
+    const aSlice = a.slice(f32).?;
+    @memcpy(aSlice, &[_]f32{ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 });
+
+    // [[7, 8],
+    //  [9, 1],
+    //  [2, 3]]
+    const bSlice = b.slice(f32).?;
+    @memcpy(bSlice, &[_]f32{ 7.0, 8.0, 9.0, 1.0, 2.0, 3.0 });
+
+    try program.forward();
+
+    // we should get
+    // C[0,0] = 1*7 + 2*9 + 3*2 = 7 + 18 + 6 = 31
+    // C[0,1] = 1*8 + 2*1 + 3*3 = 8 + 2 + 9 = 19
+    // C[1,0] = 4*7 + 5*9 + 6*2 = 28 + 45 + 12 = 85
+    // C[1,1] = 4*8 + 5*1 + 6*3 = 32 + 5 + 18 = 55
+
+    const cSlice = c.slice(f32).?;
+    try testing.expectEqualSlices(f32, &[_]f32{ 31.0, 19.0, 85.0, 55.0 }, cSlice);
+}
+
+test "op: matmul backward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var program: Program = .init(&tensorArena, memArena.allocator());
+    defer program.deinit();
+
+    const shapeA: Shape = comptime .fromSlice(&.{ 1, 2 });
+    const a = try program.createInput("a", .float32, shapeA, true);
+
+    const shapeB: Shape = comptime .fromSlice(&.{ 2, 1 });
+    const b = try program.createInput("b", .float32, shapeB, true);
+
+    // (1,2) * (2,1) gives (1,1), a dot product basically
+    const c = try matmul(&program, a, b);
+    try program.registerOutput("c", c);
+
+    try program.finalize(true);
+    try tensorArena.allocateStorage();
+
+    const aSlice = a.slice(f32).?;
+    @memcpy(aSlice, &[_]f32{ 1.0, 2.0 });
+
+    const bSlice = b.slice(f32).?;
+    @memcpy(bSlice, &[_]f32{ 3.0, 4.0 });
+
+    try program.forward();
+
+    // 3 + 2 * 4 = 11
+    const cSlice = c.slice(f32).?;
+    try testing.expectEqual(11.0, cSlice[0]);
+
+    // make gradient dC = 1.0 just for simplicity
+    const cGradSlice = c.grad.?.slice(f32).?;
+    cGradSlice[0] = 1.0;
+
+    @memset(a.grad.?.slice(f32).?, 0);
+    @memset(b.grad.?.slice(f32).?, 0);
+
+    try program.backward();
+
+    // dA = dC * B^T = 1.0 * [[3,4]] = [[3,4]]
+    const aGradSlice = a.grad.?.slice(f32).?;
+    try testing.expectEqual(3.0, aGradSlice[0]);
+    try testing.expectEqual(4.0, aGradSlice[1]);
+
+    // dB = A^T * dC = [[1],[2]] * 1.0 = [[1],[2]]
+    const bGradSlice = b.grad.?.slice(f32).?;
+    try testing.expectEqual(1.0, bGradSlice[0]);
+    try testing.expectEqual(2.0, bGradSlice[1]);
 }
