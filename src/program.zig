@@ -68,9 +68,9 @@ pub const Program = struct {
     }
 
     /// Appends an operation to the program
-    pub fn append(self: *@This(), op_info: *const OpInfo, inputs: []*const Tensor, out: *const Tensor, extra: ?*anyopaque) !void {
+    pub fn append(self: *@This(), op_info: *const OpInfo, inputs: []const *const Tensor, out: *const Tensor, extra: ?*anyopaque) !void {
         if (self.flags.finalized) return error.ProgramIsFinalized;
-        if (inputs.len >= OpNode.MAX_INPUTS) {
+        if (inputs.len > OpNode.MAX_INPUTS) {
             if (@inComptime()) {
                 @compileError(std.fmt.comptimePrint("Expected at most {} inputs, got {} inputs instead.", .{ OpNode.MAX_INPUTS, inputs.len }));
             } else {
@@ -173,6 +173,30 @@ pub const Program = struct {
                 op_node.output,
                 op_node.extra_data,
             );
+        }
+    }
+
+    /// Performs a backward pass of the program.
+    pub fn backward(self: *@This()) !void {
+        if (!self.flags.finalized) return error.NotFinalized;
+        if (!self.flags.allow_backprop) return error.BackpropNotEnabled;
+
+        var i: usize = self.ops.items.len;
+        while (i > 0) {
+            i -= 1;
+            const op_node = self.ops.items[i];
+
+            // If output has no gradient, we can't propagate back.
+            // (Assuming that if it requires grad, it should have one allocated,
+            // unless it's a leaf that didn't get one? But finalize should ensure it).
+            if (op_node.output.grad) |grad_output| {
+                try op_node.op_info.backward(
+                    op_node.inputs[0..op_node.n_inputs],
+                    op_node.output,
+                    grad_output,
+                    op_node.extra_data,
+                );
+            }
         }
     }
 
