@@ -3,6 +3,7 @@ const tensor = @import("tensor.zig");
 const prog = @import("program.zig");
 const elemwise_ops = @import("ops/elemwise.zig");
 const matmul_ops = @import("ops/matmul.zig");
+const loss_ops = @import("ops/loss.zig");
 
 const Tensor = tensor.Tensor;
 const TensorArena = tensor.TensorArena;
@@ -40,6 +41,12 @@ const OPS = struct {
         .name = "MatMul",
         .forward = matmul_ops.forwardMatMul,
         .backward = matmul_ops.backwardMatMul,
+    };
+
+    pub const MSE: OpInfo = .{
+        .name = "MSE",
+        .forward = loss_ops.forwardMSE,
+        .backward = loss_ops.backwardMSE,
     };
 };
 
@@ -96,6 +103,15 @@ pub fn matmul(program: *Program, a: *const Tensor, b: *const Tensor) !*const Ten
 
     const out = try program.arena.makeTensor(a.dtype, .fromSlice(&.{ M, K }), a.requires_grad or b.requires_grad);
     try program.append(&OPS.MATMUL, &.{ a, b }, out, null);
+    return out;
+}
+
+pub fn mse(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
+    if (!a.shape.eql(b.shape)) return error.ShapeMismatch;
+    if (a.dtype != b.dtype) return error.DtypeMismatch;
+
+    const out = try program.arena.makeTensor(a.dtype, .fromSlice(&.{1}), a.requires_grad or b.requires_grad);
+    try program.append(&OPS.MSE, &.{ a, b }, out, null);
     return out;
 }
 
@@ -514,4 +530,92 @@ test "op: matmul backward" {
     const bGradSlice = b.grad.?.slice(f32).?;
     try testing.expectEqual(1.0, bGradSlice[0]);
     try testing.expectEqual(2.0, bGradSlice[1]);
+}
+
+test "op: mse forward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var program: Program = .init(&tensorArena, memArena.allocator());
+    defer program.deinit();
+
+    const shape: Shape = comptime .fromSlice(&.{2});
+    const a = try program.createInput("a", .float32, shape, false);
+    const b = try program.createInput("b", .float32, shape, false);
+
+    const loss = try mse(&program, a, b);
+    try program.registerOutput("loss", loss);
+
+    try program.finalize(false);
+    try tensorArena.allocateStorage();
+
+    const aSlice = a.slice(f32).?;
+    @memcpy(aSlice, &[_]f32{ 1.0, 2.0 });
+
+    const bSlice = b.slice(f32).?;
+    @memcpy(bSlice, &[_]f32{ 3.0, 5.0 });
+
+    // (1-3)^2 = 4
+    // (2-5)^2 = 9
+    // 9 + 4 = 13
+    // mean value = 13 / 2 = 6.5
+
+    try program.forward();
+
+    const lossScalar = loss.scalar(f32).?;
+    try testing.expectEqual(6.5, lossScalar);
+}
+
+test "op: mse backward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var program: Program = .init(&tensorArena, memArena.allocator());
+    defer program.deinit();
+
+    const shape: Shape = comptime .fromSlice(&.{2});
+    const a = try program.createInput("a", .float32, shape, true);
+    const b = try program.createInput("b", .float32, shape, true);
+
+    const loss = try mse(&program, a, b);
+    try program.registerOutput("loss", loss);
+
+    try program.finalize(true);
+    try tensorArena.allocateStorage();
+
+    const aSlice = a.slice(f32).?;
+    const bSlice = b.slice(f32).?;
+    @memcpy(aSlice, &[_]f32{ 1.0, 2.0 });
+    @memcpy(bSlice, &[_]f32{ 3.0, 5.0 });
+
+    try program.forward();
+
+    const lossGrad = loss.grad.?.slice(f32).?;
+    lossGrad[0] = 1.0; // backprop 1.0
+
+    @memset(a.grad.?.slice(f32).?, 0);
+    @memset(b.grad.?.slice(f32).?, 0);
+
+    try program.backward();
+
+    const aGrad = a.grad.?.slice(f32).?;
+    const bGrad = b.grad.?.slice(f32).?;
+
+    // N = 2
+    // dL/da = (2/N) * (a - b) * 1.0 = (a - b)
+    // a[0] - b[0] = 1 - 3 = -2
+    // a[1] - b[1] = 2 - 5 = -3
+
+    try testing.expectEqual(-2.0, aGrad[0]);
+    try testing.expectEqual(-3.0, aGrad[1]);
+
+    // dL/db = -(2/N) * (a - b) = - (dL/da)
+    try testing.expectEqual(2.0, bGrad[0]);
+    try testing.expectEqual(3.0, bGrad[1]);
 }

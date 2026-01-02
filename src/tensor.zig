@@ -124,6 +124,13 @@ pub const Tensor = struct {
         const sl = ptr[0..self.shape.totalLength()];
         return sl;
     }
+
+    /// Returns the tensor storage as a scalar of the specified type.
+    pub fn scalar(self: *const Tensor, comptime T: type) ?T {
+        if (self.shape.totalLength() != 1) return null;
+        const sl = self.slice(T) orelse return null;
+        return sl[0];
+    }
 };
 
 /// Tracks tensor lifetimes and manages view aliasing for a single graph, enabling efficient allocation and reuse of tensors' backing memory.
