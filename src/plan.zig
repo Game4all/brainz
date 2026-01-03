@@ -17,7 +17,7 @@ pub const OpInfo = struct {
     name: [:0]const u8,
 };
 
-/// Represents an operation in the linear program.
+/// Represents an operation in the linear plan.
 const OpNode = struct {
     /// Max number of allowed inputs for a single operation
     const MAX_INPUTS = 2;
@@ -35,7 +35,7 @@ const OpNode = struct {
 };
 
 /// Represents a linear execution plan with operations to be executed
-pub const Program = struct {
+pub const ExecutionPlan = struct {
     const Flags = packed struct(u2) {
         finalized: bool = false,
         allow_backprop: bool = false,
@@ -44,20 +44,20 @@ pub const Program = struct {
     /// The arena managing the tensors of this graph.
     /// This arena may be used to create intermediate tensors for the operation results.
     arena: *TensorArena,
-    /// allocator for storing program metadata and operations
+    /// allocator for storing plan metadata and operations
     allocator: std.mem.Allocator,
     /// list of operations
     ops: std.ArrayList(OpNode),
-    /// inputs of the program
+    /// inputs of the plan
     prog_inputs: std.StringArrayHashMapUnmanaged(*const Tensor),
-    /// outputs of the program
+    /// outputs of the plan
     prog_outputs: std.StringArrayHashMapUnmanaged(*const Tensor),
-    /// parameters of the program
+    /// parameters of the plan
     prog_params: std.ArrayList(*const Tensor),
-    // internal flags for tracking program compilation state
+    // internal flags for tracking plan compilation state
     flags: Flags,
 
-    /// Initializes an empty program
+    /// Initializes an empty plan
     pub fn init(arena: *TensorArena, alloc: Allocator) @This() {
         return .{
             .allocator = alloc,
@@ -70,7 +70,7 @@ pub const Program = struct {
         };
     }
 
-    /// Appends an operation to the program.
+    /// Appends an operation to the plan.
     /// # Note
     /// This is a low-level operation, and you should use the operations in the `ops` module instead.
     pub fn append(self: *@This(), op_info: *const OpInfo, inputs: []const *const Tensor, out: *const Tensor, extra: ?*anyopaque) !void {
@@ -101,7 +101,7 @@ pub const Program = struct {
         try self.prog_inputs.put(self.allocator, input_name, input);
     }
 
-    /// Creates a tensor as an input and registers it with the program
+    /// Creates a tensor as an input and registers it with the plan
     pub fn createInput(self: *@This(), input_name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) !*const Tensor {
         if (self.flags.finalized) return error.ProgramIsFinalized;
         const t = try self.arena.makeTensor(dtype, shape, require_grad);
@@ -123,7 +123,7 @@ pub const Program = struct {
         try self.prog_outputs.put(self.allocator, output_name, output);
     }
 
-    /// Creates a tensor as an output and registers it with the program
+    /// Creates a tensor as an output and registers it with the plan
     pub fn createOutput(self: *@This(), output_name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) !*const Tensor {
         if (self.flags.finalized) return error.ProgramIsFinalized;
         const t = try self.arena.makeTensor(dtype, shape, require_grad);
@@ -131,7 +131,7 @@ pub const Program = struct {
         return t;
     }
 
-    /// Retrieves all outputs of the program
+    /// Retrieves all outputs of the plan
     pub fn getOutput(self: *const @This(), name: []const u8) ?*const Tensor {
         if (self.prog_outputs.get(name)) |ten|
             return ten;
@@ -139,7 +139,7 @@ pub const Program = struct {
         return null;
     }
 
-    /// Creates a tensor and registers it as an optimizable parameter for the program.
+    /// Creates a tensor and registers it as an optimizable parameter for the plan.
     pub fn createParam(self: *@This(), dtype: Dtype, shape: Shape) !*const Tensor {
         if (self.flags.finalized) return error.ProgramIsFinalized;
         const t = try self.arena.makeTensor(dtype, shape, true); // we consider parameters are optimizable by default
@@ -147,14 +147,14 @@ pub const Program = struct {
         return t;
     }
 
-    /// Returns all the parameters of this program.
+    /// Returns all the parameters of this plan.
     pub inline fn getParams(self: *const @This()) []*const Tensor {
         return self.prog_params.items;
     }
 
-    // ======================================================= Program finalization and passes ============================================
+    // ======================================================= ExecutionPlan finalization and passes ============================================
 
-    /// Finalizes a program for execution.
+    /// Finalizes a plan for execution.
     /// # Args
     /// - `backprop`: indicates whether to allocate gradient tensors for backpropagation.
     /// All tensors which have `require_grad` set to true will have a grad tensor attached to them for back propagation if `backprop` is enabled.
@@ -162,7 +162,7 @@ pub const Program = struct {
         if (self.flags.finalized)
             return error.AlreadyFinalized;
 
-        // program is now considered finalized and can't be mutated anymore.
+        // plan is now considered finalized and can't be mutated anymore.
         self.flags.finalized = true;
         // allow user to call backprop
         self.flags.allow_backprop = backprop;
@@ -185,7 +185,7 @@ pub const Program = struct {
         }
     }
 
-    /// Performs a forward pass of the program.
+    /// Performs a forward pass of the plan.
     pub fn forward(self: *@This()) !void {
         if (!self.flags.finalized)
             return error.NotFinalized;
@@ -199,7 +199,7 @@ pub const Program = struct {
         }
     }
 
-    /// Resets gradients of all tensors attached to the program to zero.
+    /// Resets gradients of all tensors attached to the plan to zero.
     /// # Note
     /// - You should call this before calling `backward()` to accumulate gradients properly.
     pub fn zeroGrad(self: *@This()) void {
@@ -214,7 +214,7 @@ pub const Program = struct {
         }
     }
 
-    /// Performs a backward pass of the program.
+    /// Performs a backward pass of the plan.
     pub fn backward(self: *@This()) !void {
         if (!self.flags.finalized) return error.NotFinalized;
         if (!self.flags.allow_backprop) return error.BackpropNotEnabled;
@@ -234,7 +234,7 @@ pub const Program = struct {
         }
     }
 
-    /// Frees the memory backing the program
+    /// Frees the memory backing the plan
     pub fn deinit(self: *@This()) void {
         self.ops.deinit(self.allocator);
         self.prog_outputs.deinit(self.allocator);
@@ -242,7 +242,7 @@ pub const Program = struct {
     }
 };
 
-test "creating an empty program" {
+test "creating an empty plan" {
     var memArena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer memArena.deinit();
 
@@ -250,15 +250,15 @@ test "creating an empty program" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    // create executable program
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    // create executable plan
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
-    _ = try program.createInput("input", .float32, comptime .fromSlice(&.{ 2, 3, 4 }), false);
-    _ = try program.createOutput("output", .float32, comptime .fromSlice(&.{ 2, 3, 4 }), false);
+    _ = try plan.createInput("input", .float32, comptime .fromSlice(&.{ 2, 3, 4 }), false);
+    _ = try plan.createOutput("output", .float32, comptime .fromSlice(&.{ 2, 3, 4 }), false);
 
-    const i = program.getInput("input");
-    const o = program.getOutput("output");
+    const i = plan.getInput("input");
+    const o = plan.getOutput("output");
 
     try std.testing.expect(i != null);
     try std.testing.expect(o != null);

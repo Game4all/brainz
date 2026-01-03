@@ -1,6 +1,6 @@
 const std = @import("std");
 const tensor = @import("tensor.zig");
-const prog = @import("program.zig");
+const prog = @import("plan.zig");
 const elemwise_ops = @import("ops/elemwise.zig");
 const matmul_ops = @import("ops/matmul.zig");
 const loss_ops = @import("ops/loss.zig");
@@ -10,7 +10,7 @@ const TensorArena = tensor.TensorArena;
 const Dtype = tensor.Dtype;
 const Shape = tensor.Shape;
 const OpInfo = prog.OpInfo;
-const Program = prog.Program;
+const ExecutionPlan = prog.ExecutionPlan;
 
 const OPS = struct {
     pub const ADD: OpInfo = .{
@@ -52,47 +52,47 @@ const OPS = struct {
 
 // ======================== Binary element-wise operations ==============================
 
-pub fn add(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn add(plan: *ExecutionPlan, a: *const Tensor, b: *const Tensor) !*const Tensor {
     if (!a.shape.eql(b.shape)) return error.ShapeMismatch;
     if (a.dtype != b.dtype) return error.DtypeMismatch;
 
-    const out = try program.arena.makeTensor(a.dtype, a.shape, a.requires_grad or b.requires_grad);
+    const out = try plan.arena.makeTensor(a.dtype, a.shape, a.requires_grad or b.requires_grad);
     const inputs = [_]*const Tensor{ a, b };
-    try program.append(&OPS.ADD, &inputs, out, null);
+    try plan.append(&OPS.ADD, &inputs, out, null);
     return out;
 }
 
-pub fn sub(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn sub(plan: *ExecutionPlan, a: *const Tensor, b: *const Tensor) !*const Tensor {
     if (!a.shape.eql(b.shape)) return error.ShapeMismatch;
     if (a.dtype != b.dtype) return error.DtypeMismatch;
 
-    const out = try program.arena.makeTensor(a.dtype, a.shape, a.requires_grad or b.requires_grad);
+    const out = try plan.arena.makeTensor(a.dtype, a.shape, a.requires_grad or b.requires_grad);
     const inputs = [_]*const Tensor{ a, b };
-    try program.append(&OPS.SUB, &inputs, out, null);
+    try plan.append(&OPS.SUB, &inputs, out, null);
     return out;
 }
 
-pub fn mul(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn mul(plan: *ExecutionPlan, a: *const Tensor, b: *const Tensor) !*const Tensor {
     if (!a.shape.eql(b.shape)) return error.ShapeMismatch;
     if (a.dtype != b.dtype) return error.DtypeMismatch;
 
-    const out = try program.arena.makeTensor(a.dtype, a.shape, a.requires_grad or b.requires_grad);
+    const out = try plan.arena.makeTensor(a.dtype, a.shape, a.requires_grad or b.requires_grad);
     const inputs = [_]*const Tensor{ a, b };
-    try program.append(&OPS.MUL, &inputs, out, null);
+    try plan.append(&OPS.MUL, &inputs, out, null);
     return out;
 }
 
-pub fn div(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn div(plan: *ExecutionPlan, a: *const Tensor, b: *const Tensor) !*const Tensor {
     if (!a.shape.eql(b.shape)) return error.ShapeMismatch;
     if (a.dtype != b.dtype) return error.DtypeMismatch;
 
-    const out = try program.arena.makeTensor(a.dtype, a.shape, a.requires_grad or b.requires_grad);
+    const out = try plan.arena.makeTensor(a.dtype, a.shape, a.requires_grad or b.requires_grad);
     const inputs = [_]*const Tensor{ a, b };
-    try program.append(&OPS.DIV, &inputs, out, null);
+    try plan.append(&OPS.DIV, &inputs, out, null);
     return out;
 }
 
-pub fn matmul(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn matmul(plan: *ExecutionPlan, a: *const Tensor, b: *const Tensor) !*const Tensor {
     // only 2D tensors are supported for now
     if (a.shape.n_dimensions != 2 or b.shape.n_dimensions != 2) return error.ShapeMismatch;
     if (a.shape.dimensions[1] != b.shape.dimensions[0]) return error.ShapeMismatch;
@@ -101,17 +101,17 @@ pub fn matmul(program: *Program, a: *const Tensor, b: *const Tensor) !*const Ten
     const M = a.shape.dimensions[0];
     const K = b.shape.dimensions[1];
 
-    const out = try program.arena.makeTensor(a.dtype, .fromSlice(&.{ M, K }), a.requires_grad or b.requires_grad);
-    try program.append(&OPS.MATMUL, &.{ a, b }, out, null);
+    const out = try plan.arena.makeTensor(a.dtype, .fromSlice(&.{ M, K }), a.requires_grad or b.requires_grad);
+    try plan.append(&OPS.MATMUL, &.{ a, b }, out, null);
     return out;
 }
 
-pub fn mseLoss(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn mseLoss(plan: *ExecutionPlan, a: *const Tensor, b: *const Tensor) !*const Tensor {
     if (!a.shape.eql(b.shape)) return error.ShapeMismatch;
     if (a.dtype != b.dtype) return error.DtypeMismatch;
 
-    const out = try program.arena.makeTensor(a.dtype, .fromSlice(&.{1}), a.requires_grad or b.requires_grad);
-    try program.append(&OPS.MSE, &.{ a, b }, out, null);
+    const out = try plan.arena.makeTensor(a.dtype, .fromSlice(&.{1}), a.requires_grad or b.requires_grad);
+    try plan.append(&OPS.MSE, &.{ a, b }, out, null);
     return out;
 }
 
@@ -126,17 +126,17 @@ test "op: add forward" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
     const shape = comptime Shape.fromSlice(&.{2});
-    const a = try program.createInput("a", .float32, shape, false);
-    const b = try program.createInput("b", .float32, shape, false);
+    const a = try plan.createInput("a", .float32, shape, false);
+    const b = try plan.createInput("b", .float32, shape, false);
 
-    const c = try add(&program, a, b);
-    try program.registerOutput("c", c);
+    const c = try add(&plan, a, b);
+    try plan.registerOutput("c", c);
 
-    try program.finalize(false);
+    try plan.finalize(false);
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32) orelse return error.NullSlice;
@@ -146,7 +146,7 @@ test "op: add forward" {
     bSlice[0] = 4.0;
     bSlice[1] = 5.0;
 
-    try program.forward();
+    try plan.forward();
 
     const cSlice = c.slice(f32) orelse return error.NullSlice;
     try testing.expectEqual(6.0, cSlice[0]);
@@ -160,17 +160,17 @@ test "op: add backward" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
     const shape = comptime Shape.fromSlice(&.{2});
-    const a = try program.createInput("a", .float32, shape, true);
-    const b = try program.createInput("b", .float32, shape, true);
+    const a = try plan.createInput("a", .float32, shape, true);
+    const b = try plan.createInput("b", .float32, shape, true);
 
-    const c = try add(&program, a, b);
-    try program.registerOutput("c", c);
+    const c = try add(&plan, a, b);
+    try plan.registerOutput("c", c);
 
-    try program.finalize(true);
+    try plan.finalize(true);
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32) orelse return error.NullSlice;
@@ -180,7 +180,7 @@ test "op: add backward" {
     bSlice[0] = 4.0;
     bSlice[1] = 5.0;
 
-    try program.forward();
+    try plan.forward();
 
     const cGradSlice = c.grad.?.slice(f32) orelse return error.NullSlice;
     cGradSlice[0] = 1.0;
@@ -188,7 +188,7 @@ test "op: add backward" {
     @memset(a.grad.?.slice(f32) orelse return error.NullSlice, 0);
     @memset(b.grad.?.slice(f32) orelse return error.NullSlice, 0);
 
-    try program.backward();
+    try plan.backward();
 
     const aGradSlice = a.grad.?.slice(f32) orelse return error.NullSlice;
     const bGradSlice = b.grad.?.slice(f32) orelse return error.NullSlice;
@@ -203,17 +203,17 @@ test "op: sub forward" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
     const shape = comptime Shape.fromSlice(&.{2});
-    const a = try program.createInput("a", .float32, shape, false);
-    const b = try program.createInput("b", .float32, shape, false);
+    const a = try plan.createInput("a", .float32, shape, false);
+    const b = try plan.createInput("b", .float32, shape, false);
 
-    const c = try sub(&program, a, b);
-    try program.registerOutput("c", c);
+    const c = try sub(&plan, a, b);
+    try plan.registerOutput("c", c);
 
-    try program.finalize(false);
+    try plan.finalize(false);
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
@@ -222,7 +222,7 @@ test "op: sub forward" {
     const bSlice = b.slice(f32).?;
     @memcpy(bSlice, &[_]f32{ 2.0, 3.0 });
 
-    try program.forward();
+    try plan.forward();
 
     const cSlice = c.slice(f32).?;
     try testing.expectEqualSlices(f32, &[_]f32{ 3.0, 4.0 }, cSlice);
@@ -235,17 +235,17 @@ test "op: sub backward" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
     const shape = comptime Shape.fromSlice(&.{2});
-    const a = try program.createInput("a", .float32, shape, true);
-    const b = try program.createInput("b", .float32, shape, true);
+    const a = try plan.createInput("a", .float32, shape, true);
+    const b = try plan.createInput("b", .float32, shape, true);
 
-    const c = try sub(&program, a, b);
-    try program.registerOutput("c", c);
+    const c = try sub(&plan, a, b);
+    try plan.registerOutput("c", c);
 
-    try program.finalize(true);
+    try plan.finalize(true);
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
@@ -254,7 +254,7 @@ test "op: sub backward" {
     const bSlice = b.slice(f32).?;
     @memcpy(bSlice, &[_]f32{ 2.0, 3.0 });
 
-    try program.forward();
+    try plan.forward();
 
     const cGradSlice = c.grad.?.slice(f32).?;
     @memset(cGradSlice, 1.0);
@@ -262,7 +262,7 @@ test "op: sub backward" {
     @memset(a.grad.?.slice(f32).?, 0);
     @memset(b.grad.?.slice(f32).?, 0);
 
-    try program.backward();
+    try plan.backward();
 
     const aGradSlice = a.grad.?.slice(f32).?;
     const bGradSlice = b.grad.?.slice(f32).?;
@@ -278,17 +278,17 @@ test "op: mul forward" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
     const shape = comptime Shape.fromSlice(&.{2});
-    const a = try program.createInput("a", .float32, shape, false);
-    const b = try program.createInput("b", .float32, shape, false);
+    const a = try plan.createInput("a", .float32, shape, false);
+    const b = try plan.createInput("b", .float32, shape, false);
 
-    const c = try mul(&program, a, b);
-    try program.registerOutput("c", c);
+    const c = try mul(&plan, a, b);
+    try plan.registerOutput("c", c);
 
-    try program.finalize(false);
+    try plan.finalize(false);
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
@@ -298,7 +298,7 @@ test "op: mul forward" {
     bSlice[0] = 4.0;
     bSlice[1] = 5.0;
 
-    try program.forward();
+    try plan.forward();
 
     const cSlice = c.slice(f32).?;
     try testing.expectEqual(8.0, cSlice[0]);
@@ -312,17 +312,17 @@ test "op: mul backward" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
     const shape = comptime Shape.fromSlice(&.{2});
-    const a = try program.createInput("a", .float32, shape, true);
-    const b = try program.createInput("b", .float32, shape, true);
+    const a = try plan.createInput("a", .float32, shape, true);
+    const b = try plan.createInput("b", .float32, shape, true);
 
-    const c = try mul(&program, a, b);
-    try program.registerOutput("c", c);
+    const c = try mul(&plan, a, b);
+    try plan.registerOutput("c", c);
 
-    try program.finalize(true);
+    try plan.finalize(true);
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
@@ -332,7 +332,7 @@ test "op: mul backward" {
     bSlice[0] = 4.0;
     bSlice[1] = 5.0;
 
-    try program.forward();
+    try plan.forward();
 
     const cGradSlice = c.grad.?.slice(f32).?;
     cGradSlice[0] = 1.0;
@@ -340,7 +340,7 @@ test "op: mul backward" {
     @memset(a.grad.?.slice(f32).?, 0);
     @memset(b.grad.?.slice(f32).?, 0);
 
-    try program.backward();
+    try plan.backward();
 
     const aGradSlice = a.grad.?.slice(f32).?;
     const bGradSlice = b.grad.?.slice(f32).?;
@@ -355,17 +355,17 @@ test "op: div forward" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
     const shape = comptime Shape.fromSlice(&.{2});
-    const a = try program.createInput("a", .float32, shape, false);
-    const b = try program.createInput("b", .float32, shape, false);
+    const a = try plan.createInput("a", .float32, shape, false);
+    const b = try plan.createInput("b", .float32, shape, false);
 
-    const c = try div(&program, a, b);
-    try program.registerOutput("c", c);
+    const c = try div(&plan, a, b);
+    try plan.registerOutput("c", c);
 
-    try program.finalize(true);
+    try plan.finalize(true);
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
@@ -375,7 +375,7 @@ test "op: div forward" {
     bSlice[0] = 2.0;
     bSlice[1] = 3.0;
 
-    try program.forward();
+    try plan.forward();
 
     const cSlice = c.slice(f32).?;
     try testing.expectEqual(4.0, cSlice[0]);
@@ -389,17 +389,17 @@ test "op: div backward" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
     const shape = comptime Shape.fromSlice(&.{2});
-    const a = try program.createInput("a", .float32, shape, true);
-    const b = try program.createInput("b", .float32, shape, true);
+    const a = try plan.createInput("a", .float32, shape, true);
+    const b = try plan.createInput("b", .float32, shape, true);
 
-    const c = try div(&program, a, b);
-    try program.registerOutput("c", c);
+    const c = try div(&plan, a, b);
+    try plan.registerOutput("c", c);
 
-    try program.finalize(true);
+    try plan.finalize(true);
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
@@ -409,7 +409,7 @@ test "op: div backward" {
     bSlice[0] = 2.0;
     bSlice[1] = 3.0;
 
-    try program.forward();
+    try plan.forward();
 
     const cGradSlice = c.grad.?.slice(f32).?;
     cGradSlice[0] = 1.0;
@@ -417,7 +417,7 @@ test "op: div backward" {
     @memset(a.grad.?.slice(f32).?, 0);
     @memset(b.grad.?.slice(f32).?, 0);
 
-    try program.backward();
+    try plan.backward();
 
     const aGradSlice = a.grad.?.slice(f32).?;
     const bGradSlice = b.grad.?.slice(f32).?;
@@ -434,22 +434,22 @@ test "op: matmul forward" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
     const shapeA: Shape = comptime .fromSlice(&.{ 2, 3 });
-    const a = try program.createInput("a", .float32, shapeA, false);
+    const a = try plan.createInput("a", .float32, shapeA, false);
 
     const shapeB: Shape = comptime .fromSlice(&.{ 3, 2 });
-    const b = try program.createInput("b", .float32, shapeB, false);
+    const b = try plan.createInput("b", .float32, shapeB, false);
 
     // (2,3) * (3,2) gives a (2,2) matrix
-    const c = try matmul(&program, a, b);
+    const c = try matmul(&plan, a, b);
     try testing.expectEqual(Shape.fromSlice(&.{ 2, 2 }), c.shape);
 
-    try program.registerOutput("c", c);
+    try plan.registerOutput("c", c);
 
-    try program.finalize(false);
+    try plan.finalize(false);
     try tensorArena.allocateStorage();
 
     // [[1, 2, 3],
@@ -463,7 +463,7 @@ test "op: matmul forward" {
     const bSlice = b.slice(f32).?;
     @memcpy(bSlice, &[_]f32{ 7.0, 8.0, 9.0, 1.0, 2.0, 3.0 });
 
-    try program.forward();
+    try plan.forward();
 
     // we should get
     // C[0,0] = 1*7 + 2*9 + 3*2 = 7 + 18 + 6 = 31
@@ -482,20 +482,20 @@ test "op: matmul backward" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
     const shapeA: Shape = comptime .fromSlice(&.{ 1, 2 });
-    const a = try program.createInput("a", .float32, shapeA, true);
+    const a = try plan.createInput("a", .float32, shapeA, true);
 
     const shapeB: Shape = comptime .fromSlice(&.{ 2, 1 });
-    const b = try program.createInput("b", .float32, shapeB, true);
+    const b = try plan.createInput("b", .float32, shapeB, true);
 
     // (1,2) * (2,1) gives (1,1), a dot product basically
-    const c = try matmul(&program, a, b);
-    try program.registerOutput("c", c);
+    const c = try matmul(&plan, a, b);
+    try plan.registerOutput("c", c);
 
-    try program.finalize(true);
+    try plan.finalize(true);
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
@@ -504,7 +504,7 @@ test "op: matmul backward" {
     const bSlice = b.slice(f32).?;
     @memcpy(bSlice, &[_]f32{ 3.0, 4.0 });
 
-    try program.forward();
+    try plan.forward();
 
     // 3 + 2 * 4 = 11
     const cSlice = c.slice(f32).?;
@@ -517,7 +517,7 @@ test "op: matmul backward" {
     @memset(a.grad.?.slice(f32).?, 0);
     @memset(b.grad.?.slice(f32).?, 0);
 
-    try program.backward();
+    try plan.backward();
 
     // dA = dC * B^T = 1.0 * [[3,4]] = [[3,4]]
     const aGradSlice = a.grad.?.slice(f32).?;
@@ -537,17 +537,17 @@ test "op: mse forward" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
     const shape: Shape = comptime .fromSlice(&.{2});
-    const a = try program.createInput("a", .float32, shape, false);
-    const b = try program.createInput("b", .float32, shape, false);
+    const a = try plan.createInput("a", .float32, shape, false);
+    const b = try plan.createInput("b", .float32, shape, false);
 
-    const loss = try mseLoss(&program, a, b);
-    try program.registerOutput("loss", loss);
+    const loss = try mseLoss(&plan, a, b);
+    try plan.registerOutput("loss", loss);
 
-    try program.finalize(false);
+    try plan.finalize(false);
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
@@ -561,7 +561,7 @@ test "op: mse forward" {
     // 9 + 4 = 13
     // mean value = 13 / 2 = 6.5
 
-    try program.forward();
+    try plan.forward();
 
     const lossScalar = loss.scalar(f32).?;
     try testing.expectEqual(6.5, lossScalar);
@@ -574,17 +574,17 @@ test "op: mse backward" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    var program: Program = .init(&tensorArena, memArena.allocator());
-    defer program.deinit();
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
 
     const shape: Shape = comptime .fromSlice(&.{2});
-    const a = try program.createInput("a", .float32, shape, true);
-    const b = try program.createInput("b", .float32, shape, true);
+    const a = try plan.createInput("a", .float32, shape, true);
+    const b = try plan.createInput("b", .float32, shape, true);
 
-    const loss = try mseLoss(&program, a, b);
-    try program.registerOutput("loss", loss);
+    const loss = try mseLoss(&plan, a, b);
+    try plan.registerOutput("loss", loss);
 
-    try program.finalize(true);
+    try plan.finalize(true);
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
@@ -592,7 +592,7 @@ test "op: mse backward" {
     @memcpy(aSlice, &[_]f32{ 1.0, 2.0 });
     @memcpy(bSlice, &[_]f32{ 3.0, 5.0 });
 
-    try program.forward();
+    try plan.forward();
 
     const lossGrad = loss.grad.?.slice(f32).?;
     lossGrad[0] = 1.0; // backprop 1.0
@@ -600,7 +600,7 @@ test "op: mse backward" {
     @memset(a.grad.?.slice(f32).?, 0);
     @memset(b.grad.?.slice(f32).?, 0);
 
-    try program.backward();
+    try plan.backward();
 
     const aGrad = a.grad.?.slice(f32).?;
     const bGrad = b.grad.?.slice(f32).?;

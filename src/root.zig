@@ -2,12 +2,12 @@ const std = @import("std");
 
 const tensor = @import("tensor.zig");
 const op = @import("ops.zig");
-const prog = @import("program.zig");
+const prog = @import("plan.zig");
 const optimizers = @import("optim.zig");
 
 pub const Tensor = tensor.Tensor;
 pub const TensorArena = tensor.TensorArena;
-pub const Program = prog.Program;
+pub const ExecutionPlan = prog.ExecutionPlan;
 pub const Dtype = tensor.Dtype;
 pub const Shape = tensor.Shape;
 

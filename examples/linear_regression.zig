@@ -9,7 +9,7 @@ const Dtype = brainz.Dtype;
 const Shape = brainz.Shape;
 const Tensor = brainz.Tensor;
 const TensorArena = brainz.TensorArena;
-const Program = brainz.Program;
+const ExecutionPlan = brainz.ExecutionPlan;
 
 pub fn main() !void {
     var gpa = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -29,26 +29,26 @@ pub fn main() !void {
     const y_shape: Shape = comptime .fromSlice(&.{ N, 1 });
     const w_shape: Shape = comptime .fromSlice(&.{ 2, 1 }); // weight tensor shape
 
-    // define program and linear regression model
-    var prog: Program = .init(&tensorArena, allocator);
-    defer prog.deinit();
+    // define plan and linear regression model
+    var plan: ExecutionPlan = .init(&tensorArena, allocator);
+    defer plan.deinit();
 
     // create X and target Y inputs (which both are not trainable hence do not require gradients)
-    const x = try prog.createInput("x", .float32, x_shape, false);
-    const y_target = try prog.createInput("y", .float32, y_shape, false);
+    const x = try plan.createInput("x", .float32, x_shape, false);
+    const y_target = try plan.createInput("y", .float32, y_shape, false);
 
     // create a tensor for model parameters (which are trainable)
-    const w = try prog.createParam(.float32, w_shape);
+    const w = try plan.createParam(.float32, w_shape);
 
     // y_pred = x @ w which is a dot product
-    const y_pred = try ops.matmul(&prog, x, w);
+    const y_pred = try ops.matmul(&plan, x, w);
 
     // loss = mse(y_pred, y_target)
-    const loss = try ops.mseLoss(&prog, y_pred, y_target);
-    try prog.registerOutput("loss", loss);
+    const loss = try ops.mseLoss(&plan, y_pred, y_target);
+    try plan.registerOutput("loss", loss);
 
-    // finalize program and allocate backing memory for tensors
-    try prog.finalize(true);
+    // finalize plan and allocate backing memory for tensors
+    try plan.finalize(true);
     try tensorArena.allocateStorage();
 
     // initialize default PRNG
@@ -75,30 +75,30 @@ pub fn main() !void {
         w_i.* = random.floatNorm(f32);
 
     // compute initial MSE for display
-    try prog.forward();
+    try plan.forward();
     const initialLoss = loss.scalar(f32).?;
 
     std.log.info("Initial weights: w={d:.4}, b={d:.4}, MSE={d:.4}", .{ w_data[0], w_data[1], initialLoss });
 
-    var sgd = optim.SGD.init(prog.getParams(), lr);
+    var sgd = optim.SGD.init(plan.getParams(), lr);
     const loss_grad = loss.grad.?.slice(f32).?;
 
     for (0..epochs) |epoch| {
-        try prog.forward();
+        try plan.forward();
 
         const current_loss = loss.scalar(f32).?;
         std.log.info("Epoch {}: Loss = {d:.6}", .{ epoch, current_loss });
 
         // zero out the gradients
-        prog.zeroGrad();
+        plan.zeroGrad();
         loss_grad[0] = 1.0; // seed the initial gradient
-        try prog.backward();
+        try plan.backward();
 
         sgd.step();
     }
 
     // compute final MSE for display
-    try prog.forward();
+    try plan.forward();
     const finalLoss = loss.scalar(f32).?;
 
     // Result

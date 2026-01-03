@@ -58,7 +58,7 @@ test "Optimizer: SGD step and zeroGrad integration" {
 
     const shape: Shape = comptime .fromSlice(&.{2});
 
-    // we manually create and attach the gradient tensor to the original gradient because we don't use a program which would do it for us
+    // we manually create and attach the gradient tensor to the original gradient because we don't use a plan which would do it for us
     const param = try tensorArena.makeTensor(.float32, shape, true);
     const grad = try tensorArena.makeTensor(.float32, shape, false);
 
