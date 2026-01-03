@@ -16,21 +16,6 @@ pub const SGD = struct {
         };
     }
 
-    /// Resets the gradients of all optimized parameters to zero.
-    /// # Note
-    /// - MUST be called before program.backward()
-    pub fn zeroGrad(self: *SGD) void {
-        for (self.parameters) |param| {
-            if (param.grad) |grad| {
-                switch (grad.dtype) {
-                    .float32 => if (grad.slice(f32)) |s| @memset(s, 0),
-                    .float64 => if (grad.slice(f64)) |s| @memset(s, 0),
-                    else => {},
-                }
-            }
-        }
-    }
-
     /// Performs a single optimization step (updates parameters).
     pub fn step(self: *SGD) void {
         for (self.parameters) |param| {
@@ -98,9 +83,4 @@ test "Optimizer: SGD step and zeroGrad integration" {
 
     try testing.expectApproxEqAbs(@as(f32, 0.95), p_data[0], 1e-5);
     try testing.expectApproxEqAbs(@as(f32, 1.9), p_data[1], 1e-5);
-
-    // testing gradients are zeroed out
-    optim.zeroGrad();
-    try testing.expectEqual(@as(f32, 0.0), g_data[0]);
-    try testing.expectEqual(@as(f32, 0.0), g_data[1]);
 }

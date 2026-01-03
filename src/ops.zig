@@ -106,7 +106,7 @@ pub fn matmul(program: *Program, a: *const Tensor, b: *const Tensor) !*const Ten
     return out;
 }
 
-pub fn mse(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn mseLoss(program: *Program, a: *const Tensor, b: *const Tensor) !*const Tensor {
     if (!a.shape.eql(b.shape)) return error.ShapeMismatch;
     if (a.dtype != b.dtype) return error.DtypeMismatch;
 
@@ -216,18 +216,16 @@ test "op: sub forward" {
     try program.finalize(false);
     try tensorArena.allocateStorage();
 
-    const aSlice = a.slice(f32) orelse return error.NullSlice;
-    const bSlice = b.slice(f32) orelse return error.NullSlice;
-    aSlice[0] = 5.0;
-    aSlice[1] = 7.0;
-    bSlice[0] = 2.0;
-    bSlice[1] = 3.0;
+    const aSlice = a.slice(f32).?;
+    @memcpy(aSlice, &[_]f32{ 5.0, 7.0 });
+
+    const bSlice = b.slice(f32).?;
+    @memcpy(bSlice, &[_]f32{ 2.0, 3.0 });
 
     try program.forward();
 
     const cSlice = c.slice(f32).?;
-    try testing.expectEqual(3.0, cSlice[0]);
-    try testing.expectEqual(4.0, cSlice[1]);
+    try testing.expectEqualSlices(f32, &[_]f32{ 3.0, 4.0 }, cSlice);
 }
 
 test "op: sub backward" {
@@ -251,17 +249,16 @@ test "op: sub backward" {
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
+    @memcpy(aSlice, &[_]f32{ 5.0, 7.0 });
+
     const bSlice = b.slice(f32).?;
-    aSlice[0] = 5.0;
-    aSlice[1] = 7.0;
-    bSlice[0] = 2.0;
-    bSlice[1] = 3.0;
+    @memcpy(bSlice, &[_]f32{ 2.0, 3.0 });
 
     try program.forward();
 
     const cGradSlice = c.grad.?.slice(f32).?;
-    cGradSlice[0] = 1.0;
-    cGradSlice[1] = 1.0;
+    @memset(cGradSlice, 1.0);
+
     @memset(a.grad.?.slice(f32).?, 0);
     @memset(b.grad.?.slice(f32).?, 0);
 
@@ -269,6 +266,7 @@ test "op: sub backward" {
 
     const aGradSlice = a.grad.?.slice(f32).?;
     const bGradSlice = b.grad.?.slice(f32).?;
+
     try testing.expectEqual(1.0, aGradSlice[0]);
     try testing.expectEqual(-1.0, bGradSlice[0]);
 }
@@ -546,7 +544,7 @@ test "op: mse forward" {
     const a = try program.createInput("a", .float32, shape, false);
     const b = try program.createInput("b", .float32, shape, false);
 
-    const loss = try mse(&program, a, b);
+    const loss = try mseLoss(&program, a, b);
     try program.registerOutput("loss", loss);
 
     try program.finalize(false);
@@ -583,7 +581,7 @@ test "op: mse backward" {
     const a = try program.createInput("a", .float32, shape, true);
     const b = try program.createInput("b", .float32, shape, true);
 
-    const loss = try mse(&program, a, b);
+    const loss = try mseLoss(&program, a, b);
     try program.registerOutput("loss", loss);
 
     try program.finalize(true);

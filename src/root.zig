@@ -1,17 +1,23 @@
 const std = @import("std");
-const tensor = @import("tensor.zig");
-const ops = @import("ops.zig");
-const program = @import("program.zig");
-const optim = @import("optim.zig");
 
-const Tensor = tensor.Tensor;
-const TensorArena = tensor.TensorArena;
-const Dtype = tensor.Dtype;
-const Shape = tensor.Shape;
+const tensor = @import("tensor.zig");
+const op = @import("ops.zig");
+const prog = @import("program.zig");
+const optimizers = @import("optim.zig");
+
+pub const Tensor = tensor.Tensor;
+pub const TensorArena = tensor.TensorArena;
+pub const Program = prog.Program;
+pub const Dtype = tensor.Dtype;
+pub const Shape = tensor.Shape;
+
+// Reexported modules
+pub const ops = op;
+pub const optim = optimizers;
 
 comptime {
     std.testing.refAllDeclsRecursive(tensor);
-    std.testing.refAllDeclsRecursive(program);
-    std.testing.refAllDeclsRecursive(ops);
-    std.testing.refAllDeclsRecursive(optim);
+    std.testing.refAllDeclsRecursive(prog);
+    std.testing.refAllDeclsRecursive(op);
+    std.testing.refAllDeclsRecursive(optimizers);
 }

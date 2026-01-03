@@ -131,6 +131,16 @@ pub const Tensor = struct {
         const sl = self.slice(T) orelse return null;
         return sl[0];
     }
+
+    //todo: this may have to live on the Device interface at some point
+    /// Resets the tensor storage to zero if it exists.
+    pub fn zero(self: *const Tensor) void {
+        switch (self.dtype) {
+            .float32 => if (self.slice(f32)) |s| @memset(s, 0),
+            .float64 => if (self.slice(f64)) |s| @memset(s, 0),
+            .usize64 => if (self.slice(u64)) |s| @memset(s, 0),
+        }
+    }
 };
 
 /// Tracks tensor lifetimes and manages view aliasing for a single graph, enabling efficient allocation and reuse of tensors' backing memory.

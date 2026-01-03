@@ -52,6 +52,8 @@ pub const Program = struct {
     prog_inputs: std.StringArrayHashMapUnmanaged(*const Tensor),
     /// outputs of the program
     prog_outputs: std.StringArrayHashMapUnmanaged(*const Tensor),
+    /// parameters of the program
+    prog_params: std.ArrayList(*const Tensor),
     // internal flags for tracking program compilation state
     flags: Flags,
 
@@ -62,12 +64,15 @@ pub const Program = struct {
             .arena = arena,
             .prog_inputs = .empty,
             .prog_outputs = .empty,
+            .prog_params = .empty,
             .ops = .empty,
             .flags = .{},
         };
     }
 
-    /// Appends an operation to the program
+    /// Appends an operation to the program.
+    /// # Note
+    /// This is a low-level operation, and you should use the operations in the `ops` module instead.
     pub fn append(self: *@This(), op_info: *const OpInfo, inputs: []const *const Tensor, out: *const Tensor, extra: ?*anyopaque) !void {
         if (self.flags.finalized) return error.ProgramIsFinalized;
         if (inputs.len > OpNode.MAX_INPUTS) {
@@ -88,6 +93,8 @@ pub const Program = struct {
         try self.ops.append(self.allocator, node);
     }
 
+    // ================================================= Tensor APIs ==================================================
+
     /// Registers a tensor as an input.
     pub fn registerInput(self: *@This(), input_name: []const u8, input: *const Tensor) !void {
         if (self.flags.finalized) return error.ProgramIsFinalized;
@@ -102,7 +109,7 @@ pub const Program = struct {
         return t;
     }
 
-    /// Retrieves a tensor by name from inputs or outputs
+    /// Retrieves a tensor by name from inputs.
     pub fn getInput(self: *const @This(), name: []const u8) ?*const Tensor {
         if (self.prog_inputs.get(name)) |ten|
             return ten;
@@ -132,9 +139,25 @@ pub const Program = struct {
         return null;
     }
 
+    /// Creates a tensor and registers it as an optimizable parameter for the program.
+    pub fn createParam(self: *@This(), dtype: Dtype, shape: Shape) !*const Tensor {
+        if (self.flags.finalized) return error.ProgramIsFinalized;
+        const t = try self.arena.makeTensor(dtype, shape, true); // we consider parameters are optimizable by default
+        try self.prog_params.append(self.allocator, t);
+        return t;
+    }
+
+    /// Returns all the parameters of this program.
+    pub inline fn getParams(self: *const @This()) []*const Tensor {
+        return self.prog_params.items;
+    }
+
+    // ======================================================= Program finalization and passes ============================================
+
     /// Finalizes a program for execution.
     /// # Args
     /// - `backprop`: indicates whether to allocate gradient tensors for backpropagation.
+    /// All tensors which have `require_grad` set to true will have a grad tensor attached to them for back propagation if `backprop` is enabled.
     pub fn finalize(self: *@This(), backprop: bool) !void {
         if (self.flags.finalized)
             return error.AlreadyFinalized;
@@ -173,6 +196,21 @@ pub const Program = struct {
                 op_node.output,
                 op_node.extra_data,
             );
+        }
+    }
+
+    /// Resets gradients of all tensors attached to the program to zero.
+    /// # Note
+    /// - You should call this before calling `backward()` to accumulate gradients properly.
+    pub fn zeroGrad(self: *@This()) void {
+        for (self.ops.items) |op| {
+            if (op.output.grad) |grad|
+                grad.zero();
+
+            for (op.inputs[0..op.n_inputs]) |input| {
+                if (input.grad) |grad|
+                    grad.zero();
+            }
         }
     }
 
