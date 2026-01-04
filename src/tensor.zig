@@ -29,6 +29,26 @@ pub const Shape = struct {
         return shape;
     }
 
+    /// Returns a new shape expanded with the given batch dimensions prepended
+    pub fn expandDims(self: Self, batch_dims: []const usize) Self {
+        const new_n_dims = self.n_dimensions + batch_dims.len;
+        if (new_n_dims > MAX_DIMENSIONS) {
+            if (@inComptime()) {
+                @compileError(std.fmt.comptimePrint("Expected the final shape to have {} dimensions at most, got {} dimensions instead.", .{ MAX_DIMENSIONS, new_n_dims }));
+            } else {
+                @panic(std.fmt.comptimePrint("Expected the final shape to have {} dimensions at most, got more than {} dimensions.", .{ MAX_DIMENSIONS, MAX_DIMENSIONS }));
+            }
+        }
+
+        var new_shape: Self = std.mem.zeroes(Self);
+        new_shape.n_dimensions = new_n_dims;
+
+        @memcpy(new_shape.dimensions[0..batch_dims.len], batch_dims);
+        @memcpy(new_shape.dimensions[batch_dims.len..new_n_dims], self.dimensions[0..self.n_dimensions]);
+
+        return new_shape;
+    }
+
     /// Returns true if two shapes are equal
     pub fn eql(self: Self, other: Self) bool {
         if (self.n_dimensions != other.n_dimensions) return false;
@@ -243,6 +263,22 @@ test "Shape.Stride computed layouts are fine" {
     try std.testing.expectEqual(12, strides[0]);
     try std.testing.expectEqual(4, strides[1]);
     try std.testing.expectEqual(1, strides[2]);
+}
+
+test "Shape.expandDims prepends dimensions" {
+    const shape: Shape = comptime .fromSlice(&.{ 3, 4 });
+    const batch_shape = shape.expandDims(&.{ 2, 5 });
+
+    try std.testing.expectEqual(4, batch_shape.n_dimensions);
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 2, 5, 3, 4 }, batch_shape.dimensions[0..batch_shape.n_dimensions]);
+}
+
+test "Shape.expandDims at comptime" {
+    const shape: Shape = comptime .fromSlice(&.{4});
+    const batch_shape: Shape = comptime shape.expandDims(&.{ 2, 3 });
+
+    try std.testing.expectEqual(3, batch_shape.n_dimensions);
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 2, 3, 4 }, batch_shape.dimensions[0..batch_shape.n_dimensions]);
 }
 
 test "TensorArena test" {
