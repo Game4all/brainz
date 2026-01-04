@@ -25,11 +25,11 @@ pub const Shape = struct {
 
         var shape: Self = std.mem.zeroes(Self);
         shape.n_dimensions = dims.len;
-        @memcpy(shape.dimensions[0..@min(dims.len, MAX_DIMENSIONS - 1)], dims);
+        @memcpy(shape.dimensions[0..dims.len], dims);
         return shape;
     }
 
-    /// Returns a new shape expanded with the given batch dimensions prepended
+    /// Returns a new shape expanded with the given dimensions prepended
     pub fn expandDims(self: Self, batch_dims: []const usize) Self {
         const new_n_dims = self.n_dimensions + batch_dims.len;
         if (new_n_dims > MAX_DIMENSIONS) {
@@ -84,6 +84,29 @@ pub const Shape = struct {
     /// Returns the "batch" dimension of the shape which is assumed to be the first dimension, representing the number of samples processed at once per operation.
     pub inline fn batchDim(self: *const Self) usize {
         return if (self.n_dimensions > 0) self.dimensions[0] else 1;
+    }
+
+    /// Attempts to broadcast the current shape to a target shape by expanding the current dimensions with the target shape extra dimensions.
+    /// Returns the broadcasted shape if compatible, returns an error otherwise.
+    pub fn broadcastTo(self: Self, target: Self) !Self {
+        // you can't broadcast a shape with more dimensions to a shape with less dimensions
+        if (self.n_dimensions > target.n_dimensions) return error.IncompatibleShapes;
+
+        // check compatibility for the overlapping dimensions starting from the innermost dimension
+        for (0..self.n_dimensions) |i| {
+            const self_dim = self.dimensions[self.n_dimensions - 1 - i];
+            const target_dim = target.dimensions[target.n_dimensions - 1 - i];
+
+            // dimensions are compatible if they are equal or one of them is 1
+            // since we are broadcasting to a shape target, the result must match target's dimension
+            // if target_dim == 1 and self_dim > 1, then self cant be broadcasted to target
+            // if self_dim == 1, it can be broadcasted to any target_dim
+            // if self_dim == target_dim, it's already compatible
+            if (self_dim != target_dim and self_dim != 1)
+                return error.IncompatibleShapes;
+        }
+
+        return target;
     }
 };
 
@@ -284,6 +307,46 @@ test "Shape.expandDims at comptime" {
 
     try std.testing.expectEqual(3, batch_shape.n_dimensions);
     try std.testing.expectEqualSlices(usize, &[_]usize{ 2, 3, 4 }, batch_shape.dimensions[0..batch_shape.n_dimensions]);
+}
+
+test "Shape.broadcastTo compatible shapes" {
+    const shape: Shape = comptime .fromSlice(&.{ 3, 4 });
+    const target: Shape = comptime .fromSlice(&.{ 10, 3, 4 });
+    const broadcasted = try shape.broadcastTo(target);
+
+    try std.testing.expect(broadcasted.eql(target));
+}
+
+test "Shape.broadcastTo with 1s" {
+    const shape: Shape = comptime .fromSlice(&.{ 1, 4 });
+    const target: Shape = comptime .fromSlice(&.{ 10, 3, 4 });
+    const broadcasted: Shape = try shape.broadcastTo(target);
+
+    try std.testing.expect(broadcasted.eql(target));
+}
+
+test "Shape.broadcastTo incompatible shapes" {
+    const shape: Shape = comptime .fromSlice(&.{ 2, 4 });
+    const target: Shape = comptime .fromSlice(&.{ 10, 3, 4 });
+    const broadcasted = shape.broadcastTo(target);
+
+    try std.testing.expectError(error.IncompatibleShapes, broadcasted);
+}
+
+test "Shape.broadcastTo fewer dimensions in target" {
+    const shape: Shape = comptime .fromSlice(&.{ 10, 3, 4 });
+    const target: Shape = comptime .fromSlice(&.{ 3, 4 });
+    const broadcasted = shape.broadcastTo(target);
+
+    try std.testing.expectError(error.IncompatibleShapes, broadcasted);
+}
+
+test "Shape.broadcastTo scalar shape" {
+    const shape: Shape = .{ .dimensions = undefined, .n_dimensions = 0 };
+    const target: Shape = comptime .fromSlice(&.{ 2, 3 });
+    const broadcasted = try shape.broadcastTo(target);
+
+    try std.testing.expect(broadcasted.eql(target));
 }
 
 test "TensorArena test" {
