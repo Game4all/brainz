@@ -80,6 +80,11 @@ pub const Shape = struct {
         }
         return strides;
     }
+
+    /// Returns the "batch" dimension of the shape which is assumed to be the first dimension, representing the number of samples processed at once per operation.
+    pub inline fn batchDim(self: *const Self) usize {
+        return if (self.n_dimensions > 0) self.dimensions[0] else 1;
+    }
 };
 
 /// Possible data types of a tensor

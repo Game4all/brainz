@@ -140,11 +140,9 @@ test "op: add forward" {
     try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32) orelse return error.NullSlice;
+    @memcpy(aSlice, &[_]f32{ 2.0, 3.0 });
     const bSlice = b.slice(f32) orelse return error.NullSlice;
-    aSlice[0] = 2.0;
-    aSlice[1] = 3.0;
-    bSlice[0] = 4.0;
-    bSlice[1] = 5.0;
+    @memcpy(bSlice, &[_]f32{ 4.0, 5.0 });
 
     try plan.forward();
 
@@ -175,16 +173,13 @@ test "op: add backward" {
 
     const aSlice = a.slice(f32) orelse return error.NullSlice;
     const bSlice = b.slice(f32) orelse return error.NullSlice;
-    aSlice[0] = 2.0;
-    aSlice[1] = 3.0;
-    bSlice[0] = 4.0;
-    bSlice[1] = 5.0;
+    @memcpy(aSlice, &[_]f32{ 2.0, 3.0 });
+    @memcpy(bSlice, &[_]f32{ 4.0, 5.0 });
 
     try plan.forward();
 
     const cGradSlice = c.grad.?.slice(f32) orelse return error.NullSlice;
-    cGradSlice[0] = 1.0;
-    cGradSlice[1] = 1.0;
+    @memcpy(cGradSlice, &[_]f32{ 1.0, 1.0 });
     @memset(a.grad.?.slice(f32) orelse return error.NullSlice, 0);
     @memset(b.grad.?.slice(f32) orelse return error.NullSlice, 0);
 
