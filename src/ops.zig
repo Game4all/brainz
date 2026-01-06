@@ -62,6 +62,12 @@ const OPS = struct {
         .forward = activations_ops.forwardReLU,
         .backward = activations_ops.backwardReLU,
     };
+
+    pub const SIGMOID: OpInfo = .{
+        .name = "Sigmoid",
+        .forward = activations_ops.forwardSigmoid,
+        .backward = activations_ops.backwardSigmoid,
+    };
 };
 
 // ======================== Binary element-wise operations ==============================
@@ -147,6 +153,12 @@ pub fn mseLoss(plan: *ExecutionPlan, a: *const Tensor, b: *const Tensor) !*const
 pub fn relu(plan: *ExecutionPlan, a: *const Tensor) !*const Tensor {
     const out = try plan.arena.makeTensor(a.dtype, a.shape, a.requires_grad);
     try plan.append(&OPS.RELU, &.{a}, out, null);
+    return out;
+}
+
+pub fn sigmoid(plan: *ExecutionPlan, a: *const Tensor) !*const Tensor {
+    const out = try plan.arena.makeTensor(a.dtype, a.shape, a.requires_grad);
+    try plan.append(&OPS.SIGMOID, &.{a}, out, null);
     return out;
 }
 
@@ -878,4 +890,71 @@ test "op: relu backward" {
     try plan.backward();
 
     try testing.expectEqualSlices(f32, &[_]f32{ 0.0, 0.0, 1.0, 1.0 }, a.grad.?.slice(f32).?);
+}
+
+test "op: sigmoid forward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
+
+    const shape = comptime Shape.fromSlice(&.{3});
+    const a = try plan.createInput("a", .float32, shape, false);
+
+    const b = try sigmoid(&plan, a);
+    try plan.registerOutput("b", b);
+
+    try plan.finalize(false);
+    try tensorArena.allocateStorage();
+
+    const aSlice = a.slice(f32).?;
+
+    // sigmoid(0) = 0.5
+    // sigmoid(+inf) -> 1.0
+    // sigmoid(-inf) -> 0.0
+    @memcpy(aSlice, &[_]f32{ 0.0, 100.0, -100.0 });
+
+    try plan.forward();
+
+    const bSlice = b.slice(f32).?;
+    try testing.expectApproxEqAbs(@as(f32, 0.5), bSlice[0], 1e-5);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), bSlice[1], 1e-5);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), bSlice[2], 1e-5);
+}
+
+test "op: sigmoid backward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
+
+    const shape = comptime Shape.fromSlice(&.{1});
+    const a = try plan.createInput("a", .float32, shape, true);
+
+    const b = try sigmoid(&plan, a);
+    try plan.registerOutput("b", b);
+
+    try plan.finalize(true);
+    try tensorArena.allocateStorage();
+
+    // sigmoid(0) = 0.5
+    a.slice(f32).?[0] = 0.0;
+
+    try plan.forward();
+
+    // dSigmoid(0) / dx = sigmoid(0) * (1 - sigmoid(0)) = 0.5 * 0.5 = 0.25
+    b.grad.?.slice(f32).?[0] = 1.0;
+    @memset(a.grad.?.slice(f32).?, 0);
+
+    try plan.backward();
+
+    try testing.expectApproxEqAbs(@as(f32, 0.25), a.grad.?.slice(f32).?[0], 1e-5);
 }
