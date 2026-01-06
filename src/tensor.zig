@@ -8,7 +8,7 @@ pub const Shape = struct {
     pub const Strides = [MAX_DIMENSIONS]usize;
 
     /// Maximum number of dimensions allowed on a tensor
-    const MAX_DIMENSIONS = 4;
+    pub const MAX_DIMENSIONS = 4;
 
     dimensions: [MAX_DIMENSIONS]usize,
     n_dimensions: usize,
@@ -114,8 +114,9 @@ pub const Shape = struct {
     }
 
     /// Computes the strides for the current shape when broadcasted to a target shape.
-    pub fn broadcastStrides(self: Self, target: Self) !Strides {
-        if (self.n_dimensions > target.n_dimensions) return error.IncompatibleShapes;
+    /// Returns an error if the shapes are not compatible for broadcasting else panics.
+    pub fn broadcastStrides(self: Self, target: Self) Strides {
+        if (self.n_dimensions > target.n_dimensions) @panic("Incompatible shapes for broadcasting.");
 
         var strides: Strides = std.mem.zeroes(Strides);
         const self_strides = self.layoutStrides();
@@ -132,7 +133,8 @@ pub const Shape = struct {
                 } else if (self_dim == 1) {
                     strides[target_idx] = 0;
                 } else {
-                    return error.IncompatibleShapes;
+                    @branchHint(.unlikely); // hitting this is unlikely as the shapes are checked before this function is ever called in dispatch code
+                    @panic("Incompatible shapes for broadcasting.");
                 }
             } else {
                 strides[target_idx] = 0;
@@ -379,7 +381,7 @@ test "Shape.broadcast scalar shape" {
 test "Shape.broadcastStrides" {
     const shape = Shape.fromSlice(&.{ 3, 1 });
     const target = Shape.fromSlice(&.{ 3, 4 });
-    const strides = try shape.broadcastStrides(target);
+    const strides = shape.broadcastStrides(target);
 
     // shape is [3, 1] (layout strides are [1, 1])
     // broadcast to target [3, 4]
@@ -388,7 +390,7 @@ test "Shape.broadcastStrides" {
 
     const shape2 = Shape.fromSlice(&.{4});
     const target2 = Shape.fromSlice(&.{ 2, 3, 4 });
-    const strides2 = try shape2.broadcastStrides(target2);
+    const strides2 = shape2.broadcastStrides(target2);
 
     // shape is [4] (layout strides are [1])
     // broadcast to target [2, 3, 4]

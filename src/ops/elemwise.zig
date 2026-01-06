@@ -1,7 +1,37 @@
+const std = @import("std");
 const tensor = @import("../tensor.zig");
 
 const Dtype = tensor.Dtype;
 const Tensor = tensor.Tensor;
+const Shape = tensor.Shape;
+
+fn dispatchElemwiseForward(comptime ty: type, a: *const Tensor, a_strides: []const usize, b: *const Tensor, b_strides: []const usize, output: *const Tensor, comptime op: anytype) !void {
+    const outSlice = output.slice(ty).?;
+    const aSlice = a.slice(ty).?;
+    const bSlice = b.slice(ty).?;
+
+    // we need to keep track of the indices of the output tensor to access the correct elements of the input tensors
+    var indices = std.mem.zeroes([Shape.MAX_DIMENSIONS]usize);
+    for (outSlice) |*v| {
+        var a_offset: usize = 0;
+        var b_offset: usize = 0;
+        for (0..output.shape.n_dimensions) |d| {
+            a_offset += indices[d] * a_strides[d];
+            b_offset += indices[d] * b_strides[d];
+        }
+
+        v.* = op(aSlice[a_offset], bSlice[b_offset]);
+
+        // increment indices for next iteration
+        var d: usize = output.shape.n_dimensions;
+        while (d > 0) {
+            d -= 1;
+            indices[d] += 1;
+            if (indices[d] < output.shape.dimensions[d]) break;
+            indices[d] = 0;
+        }
+    }
+}
 
 //TODO: with contiguous storage, this could be SIMD-accelerated pretty easily
 /// Performs a generic, element-wise operation on two tensors writing the result to an output tensor.
@@ -9,26 +39,53 @@ fn elementWiseForward(inputs: []const *const Tensor, output: *const Tensor, comp
     const a = inputs[0];
     const b = inputs[1];
 
-    if (!output.dtype.isFloatingPoint()) return error.UnsupportedDtype; // int types do not support element-wise operations for now
+    if (!output.dtype.isFloatingPoint()) return error.UnsupportedDtype;
+
+    const a_strides = a.shape.broadcastStrides(output.shape);
+    const b_strides = b.shape.broadcastStrides(output.shape);
 
     switch (output.dtype) {
-        .float32 => {
-            const outSlice = output.slice(f32).?;
-            const aSlice = a.slice(f32).?;
-            const bSlice = b.slice(f32).?;
-            for (outSlice, 0..) |*v, i| {
-                v.* = op(aSlice[i], bSlice[i]);
-            }
-        },
-        .float64 => {
-            const outSlice = output.slice(f64).?;
-            const aSlice = a.slice(f64).?;
-            const bSlice = b.slice(f64).?;
-            for (outSlice, 0..) |*v, i| {
-                v.* = op(aSlice[i], bSlice[i]);
-            }
-        },
+        .float32 => try dispatchElemwiseForward(f32, a, &a_strides, b, &b_strides, output, op),
+        .float64 => try dispatchElemwiseForward(f64, a, &a_strides, b, &b_strides, output, op),
         else => {},
+    }
+}
+
+fn dispatchElemwiseBackward(comptime ty: type, a: *const Tensor, a_strides: []const usize, b: *const Tensor, b_strides: []const usize, gradOutput: *const Tensor, comptime gradOp: anytype) !void {
+    const gradOutSlice = gradOutput.slice(ty).?;
+
+    // the computation of some gradients require having both inputs at hand
+    const aSlice = a.slice(ty).?;
+    const bSlice = b.slice(ty).?;
+
+    const aGradSlice = if (a.grad) |g| g.slice(ty) else null;
+    const bGradSlice = if (b.grad) |g| g.slice(ty) else null;
+
+    if (aGradSlice == null and bGradSlice == null) return;
+
+    // we need to keep track of the indices of the output tensor to access the correct elements of the input tensors
+    var indices = std.mem.zeroes([tensor.Shape.MAX_DIMENSIONS]usize);
+    for (gradOutSlice) |gCommon| {
+        var a_offset: usize = 0;
+        var b_offset: usize = 0;
+        for (0..gradOutput.shape.n_dimensions) |d| {
+            a_offset += indices[d] * a_strides[d];
+            b_offset += indices[d] * b_strides[d];
+        }
+
+        const grads = gradOp(gCommon, aSlice[a_offset], bSlice[b_offset]);
+
+        if (aGradSlice) |gs| gs[a_offset] += grads.da;
+        if (bGradSlice) |gs| gs[b_offset] += grads.db;
+
+        // increment indices for next iteration
+        var d: usize = gradOutput.shape.n_dimensions;
+        while (d > 0) {
+            d -= 1;
+            indices[d] += 1;
+            if (indices[d] < gradOutput.shape.dimensions[d]) break;
+            indices[d] = 0;
+        }
     }
 }
 
@@ -39,48 +96,14 @@ fn elementWiseBackward(inputs: []const *const Tensor, output: *const Tensor, gra
     const a = inputs[0];
     const b = inputs[1];
 
-    if (!gradOutput.dtype.isFloatingPoint()) return error.UnsupportedDtype; // int types do not support element-wise operations for now
+    if (!gradOutput.dtype.isFloatingPoint()) return error.UnsupportedDtype;
+
+    const a_strides = a.shape.broadcastStrides(gradOutput.shape);
+    const b_strides = b.shape.broadcastStrides(gradOutput.shape);
 
     switch (gradOutput.dtype) {
-        .float32 => {
-            const gradOutSlice = gradOutput.slice(f32).?;
-
-            // the computation of some gradients require having both inputs at hand
-            const aSlice = a.slice(f32).?;
-            const bSlice = b.slice(f32).?;
-
-            const aGradSlice = if (a.grad) |g| g.slice(f32) else null;
-            const bGradSlice = if (b.grad) |g| g.slice(f32) else null;
-
-            if (aGradSlice == null and bGradSlice == null) return;
-
-            for (gradOutSlice, 0..) |gCommon, i| {
-                const grads = gradOp(gCommon, aSlice[i], bSlice[i]);
-                // grads is a struct { da: T, db: T }
-
-                if (aGradSlice) |gs| gs[i] += grads.da;
-                if (bGradSlice) |gs| gs[i] += grads.db;
-            }
-        },
-        .float64 => {
-            const gradOutSlice = gradOutput.slice(f64).?;
-
-            // the computation of some gradients require having both inputs at hand
-            const aSlice = a.slice(f64).?;
-            const bSlice = b.slice(f64).?;
-
-            const aGradSlice = if (a.grad) |g| g.slice(f64) else null;
-            const bGradSlice = if (b.grad) |g| g.slice(f64) else null;
-
-            if (aGradSlice == null and bGradSlice == null) return;
-
-            for (gradOutSlice, 0..) |gCommon, i| {
-                const grads = gradOp(gCommon, aSlice[i], bSlice[i]);
-
-                if (aGradSlice) |gs| gs[i] += grads.da;
-                if (bGradSlice) |gs| gs[i] += grads.db;
-            }
-        },
+        .float32 => try dispatchElemwiseBackward(f32, a, &a_strides, b, &b_strides, gradOutput, gradOp),
+        .float64 => try dispatchElemwiseBackward(f64, a, &a_strides, b, &b_strides, gradOutput, gradOp),
         else => {},
     }
 }
