@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 pub const Shape = struct {
     const Self = @This();
     /// Represents the layout strides for tensor with the current shape.
-    const Strides = [MAX_DIMENSIONS]usize;
+    pub const Strides = [MAX_DIMENSIONS]usize;
 
     /// Maximum number of dimensions allowed on a tensor
     const MAX_DIMENSIONS = 4;
@@ -81,32 +81,64 @@ pub const Shape = struct {
         return strides;
     }
 
-    /// Returns the "batch" dimension of the shape which is assumed to be the first dimension, representing the number of samples processed at once per operation.
-    pub inline fn batchDim(self: *const Self) usize {
-        return if (self.n_dimensions > 0) self.dimensions[0] else 1;
-    }
-
-    /// Attempts to broadcast the current shape to a target shape by expanding the current dimensions with the target shape extra dimensions.
+    /// Attempts to broadcast the current shape with another shape.
+    /// Broadcasting rules:
+    /// 1. The shape with fewer dimensions is padded with ones on its outer dimensions.
+    /// 2. Two dimensions are compatible when they are equal, or one of them is 1.
+    /// 3. The resulting shape has the maximum size of each dimension from the input shapes.
     /// Returns the broadcasted shape if compatible, returns an error otherwise.
-    pub fn broadcastTo(self: Self, target: Self) !Self {
-        // you can't broadcast a shape with more dimensions to a shape with less dimensions
-        if (self.n_dimensions > target.n_dimensions) return error.IncompatibleShapes;
+    pub fn broadcast(self: Self, other: Self) !Self {
+        const n_dims = @max(self.n_dimensions, other.n_dimensions);
 
-        // check compatibility for the overlapping dimensions starting from the innermost dimension
-        for (0..self.n_dimensions) |i| {
-            const self_dim = self.dimensions[self.n_dimensions - 1 - i];
-            const target_dim = target.dimensions[target.n_dimensions - 1 - i];
-
-            // dimensions are compatible if they are equal or one of them is 1
-            // since we are broadcasting to a shape target, the result must match target's dimension
-            // if target_dim == 1 and self_dim > 1, then self cant be broadcasted to target
-            // if self_dim == 1, it can be broadcasted to any target_dim
-            // if self_dim == target_dim, it's already compatible
-            if (self_dim != target_dim and self_dim != 1)
-                return error.IncompatibleShapes;
+        if (n_dims > MAX_DIMENSIONS) {
+            if (@inComptime()) {
+                @compileError(std.fmt.comptimePrint("Expected the broadcasted shape to have {} dimensions at most, got {} dimensions instead.", .{ MAX_DIMENSIONS, n_dims }));
+            } else {
+                @panic(std.fmt.comptimePrint("Expected the broadcasted shape to have {} dimensions at most, got more than {} dimensions.", .{ MAX_DIMENSIONS, MAX_DIMENSIONS }));
+            }
         }
 
-        return target;
+        var dims: [MAX_DIMENSIONS]usize = std.mem.zeroes([MAX_DIMENSIONS]usize);
+
+        for (0..n_dims) |i| {
+            const self_dim = if (i < self.n_dimensions) self.dimensions[self.n_dimensions - 1 - i] else 1;
+            const other_dim = if (i < other.n_dimensions) other.dimensions[other.n_dimensions - 1 - i] else 1;
+
+            if (self_dim != other_dim and self_dim != 1 and other_dim != 1)
+                return error.IncompatibleShapes;
+
+            dims[n_dims - 1 - i] = @max(self_dim, other_dim);
+        }
+
+        return fromSlice(dims[0..n_dims]);
+    }
+
+    /// Computes the strides for the current shape when broadcasted to a target shape.
+    pub fn broadcastStrides(self: Self, target: Self) !Strides {
+        if (self.n_dimensions > target.n_dimensions) return error.IncompatibleShapes;
+
+        var strides: Strides = std.mem.zeroes(Strides);
+        const self_strides = self.layoutStrides();
+
+        for (0..target.n_dimensions) |i| {
+            const target_idx = target.n_dimensions - 1 - i;
+            if (i < self.n_dimensions) {
+                const self_idx = self.n_dimensions - 1 - i;
+                const self_dim = self.dimensions[self_idx];
+                const target_dim = target.dimensions[target_idx];
+
+                if (self_dim == target_dim) {
+                    strides[target_idx] = self_strides[self_idx];
+                } else if (self_dim == 1) {
+                    strides[target_idx] = 0;
+                } else {
+                    return error.IncompatibleShapes;
+                }
+            } else {
+                strides[target_idx] = 0;
+            }
+        }
+        return strides;
     }
 };
 
@@ -260,16 +292,12 @@ pub const TensorArena = struct {
 test "Shape.fromComptimeSlice creates correct shape" {
     const shape: Shape = comptime .fromSlice(&.{ 2, 3, 4 });
     try std.testing.expectEqual(3, shape.n_dimensions);
-
-    try std.testing.expectEqual(2, shape.dimensions[0]);
-    try std.testing.expectEqual(3, shape.dimensions[1]);
-    try std.testing.expectEqual(4, shape.dimensions[2]);
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 2, 3, 4 }, shape.dimensions[0..shape.n_dimensions]);
 }
 
 test "Shape.fromComptimeSlice with 1D slice" {
     const shape: Shape = comptime .fromSlice(&.{5});
-    try std.testing.expectEqual(1, shape.n_dimensions);
-    try std.testing.expectEqual(5, shape.dimensions[0]);
+    try std.testing.expectEqualSlices(usize, &[_]usize{5}, shape.dimensions[0..shape.n_dimensions]);
 }
 
 test "Shape.eql returns true for equal shapes" {
@@ -288,9 +316,8 @@ test "Shape.Stride computed layouts are fine" {
     const shape: Shape = comptime .fromSlice(&.{ 2, 3, 4 });
     const strides = shape.layoutStrides();
 
-    try std.testing.expectEqual(12, strides[0]);
-    try std.testing.expectEqual(4, strides[1]);
-    try std.testing.expectEqual(1, strides[2]);
+    // only consider the used dimensions for the strides else we'll get bugged that there's a fourth one which is zero and doesn't exist in the expected strides slice
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 12, 4, 1 }, strides[0..shape.n_dimensions]);
 }
 
 test "Shape.expandDims prepends dimensions" {
@@ -309,44 +336,64 @@ test "Shape.expandDims at comptime" {
     try std.testing.expectEqualSlices(usize, &[_]usize{ 2, 3, 4 }, batch_shape.dimensions[0..batch_shape.n_dimensions]);
 }
 
-test "Shape.broadcastTo compatible shapes" {
+test "Shape.broadcast compatible shapes" {
     const shape: Shape = comptime .fromSlice(&.{ 3, 4 });
     const target: Shape = comptime .fromSlice(&.{ 10, 3, 4 });
-    const broadcasted = try shape.broadcastTo(target);
+    const broadcasted = try shape.broadcast(target);
 
     try std.testing.expect(broadcasted.eql(target));
 }
 
-test "Shape.broadcastTo with 1s" {
+test "Shape.broadcast with 1s" {
     const shape: Shape = comptime .fromSlice(&.{ 1, 4 });
     const target: Shape = comptime .fromSlice(&.{ 10, 3, 4 });
-    const broadcasted: Shape = try shape.broadcastTo(target);
+    const broadcasted: Shape = try shape.broadcast(target);
 
     try std.testing.expect(broadcasted.eql(target));
 }
 
-test "Shape.broadcastTo incompatible shapes" {
+test "Shape.broadcast incompatible shapes" {
     const shape: Shape = comptime .fromSlice(&.{ 2, 4 });
     const target: Shape = comptime .fromSlice(&.{ 10, 3, 4 });
-    const broadcasted = shape.broadcastTo(target);
+    const broadcasted = shape.broadcast(target);
 
     try std.testing.expectError(error.IncompatibleShapes, broadcasted);
 }
 
-test "Shape.broadcastTo fewer dimensions in target" {
-    const shape: Shape = comptime .fromSlice(&.{ 10, 3, 4 });
-    const target: Shape = comptime .fromSlice(&.{ 3, 4 });
-    const broadcasted = shape.broadcastTo(target);
-
-    try std.testing.expectError(error.IncompatibleShapes, broadcasted);
+test "Shape.broadcast symmetric" {
+    const shape1 = Shape.fromSlice(&.{ 3, 1 });
+    const shape2 = Shape.fromSlice(&.{ 1, 4 });
+    const result = try shape1.broadcast(shape2);
+    try std.testing.expectEqual(2, result.n_dimensions);
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 3, 4 }, result.dimensions[0..result.n_dimensions]);
 }
 
-test "Shape.broadcastTo scalar shape" {
+test "Shape.broadcast scalar shape" {
     const shape: Shape = .{ .dimensions = undefined, .n_dimensions = 0 };
     const target: Shape = comptime .fromSlice(&.{ 2, 3 });
-    const broadcasted = try shape.broadcastTo(target);
+    const broadcasted = try shape.broadcast(target);
 
     try std.testing.expect(broadcasted.eql(target));
+}
+
+test "Shape.broadcastStrides" {
+    const shape = Shape.fromSlice(&.{ 3, 1 });
+    const target = Shape.fromSlice(&.{ 3, 4 });
+    const strides = try shape.broadcastStrides(target);
+
+    // shape is [3, 1] (layout strides are [1, 1])
+    // broadcast to target [3, 4]
+    // broadcasted strides are [1, 0]
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 1, 0 }, strides[0..shape.n_dimensions]);
+
+    const shape2 = Shape.fromSlice(&.{4});
+    const target2 = Shape.fromSlice(&.{ 2, 3, 4 });
+    const strides2 = try shape2.broadcastStrides(target2);
+
+    // shape is [4] (layout strides are [1])
+    // broadcast to target [2, 3, 4]
+    // broadcasted strides are [0, 0, 1]
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 0, 0, 1 }, strides2[0..target2.n_dimensions]);
 }
 
 test "TensorArena test" {
