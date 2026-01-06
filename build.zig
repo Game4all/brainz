@@ -30,6 +30,7 @@ pub fn build(b: *std.Build) void {
 
     const examples = .{
         .{ "example_linear_regression", "examples/linear_regression.zig", "Linear regression" },
+        .{ "example_xor", "examples/xor.zig", "XOR" },
     };
 
     inline for (examples) |example| {
