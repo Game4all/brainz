@@ -48,6 +48,12 @@ const OPS = struct {
         .forward = loss_ops.forwardMSE,
         .backward = loss_ops.backwardMSE,
     };
+
+    pub const BATCHED_MATMUL: OpInfo = .{
+        .name = "BatchedMatMul",
+        .forward = matmul_ops.forwardBatchedMatMul,
+        .backward = matmul_ops.backwardBatchedMatMul,
+    };
 };
 
 // ======================== Binary element-wise operations ==============================
@@ -103,6 +109,21 @@ pub fn matmul(plan: *ExecutionPlan, a: *const Tensor, b: *const Tensor) !*const 
 
     const out = try plan.arena.makeTensor(a.dtype, .fromSlice(&.{ M, K }), a.requires_grad or b.requires_grad);
     try plan.append(&OPS.MATMUL, &.{ a, b }, out, null);
+    return out;
+}
+
+pub fn batchedMatMul(plan: *ExecutionPlan, a: *const Tensor, b: *const Tensor) !*const Tensor {
+    // a: (B, M, N), b: (N, K) -> (B, M, K)
+    if (a.shape.n_dimensions != 3 or b.shape.n_dimensions != 2) return error.ShapeMismatch;
+    if (a.shape.dimensions[2] != b.shape.dimensions[0]) return error.ShapeMismatch;
+    if (a.dtype != b.dtype) return error.DtypeMismatch;
+
+    const B = a.shape.dimensions[0];
+    const M = a.shape.dimensions[1];
+    const K = b.shape.dimensions[1];
+
+    const out = try plan.arena.makeTensor(a.dtype, .fromSlice(&.{ B, M, K }), a.requires_grad or b.requires_grad);
+    try plan.append(&OPS.BATCHED_MATMUL, &.{ a, b }, out, null);
     return out;
 }
 
@@ -695,4 +716,93 @@ test "op: add broadcasting backward" {
 
     try testing.expectEqual(2.0, a.grad.?.slice(f32).?[0]);
     try testing.expectEqualSlices(f32, &[_]f32{ 1.0, 1.0 }, b.grad.?.slice(f32).?);
+}
+
+test "op: batched matmul forward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
+
+    // a: (2, 2, 2), b: (2, 2) -> out: (2, 2, 2)
+    const shapeA = Shape.fromSlice(&.{ 2, 2, 2 });
+    const shapeB = Shape.fromSlice(&.{ 2, 2 });
+    const a = try plan.createInput("a", .float32, shapeA, false);
+    const b = try plan.createInput("b", .float32, shapeB, false);
+
+    const c = try batchedMatMul(&plan, a, b);
+    try plan.registerOutput("c", c);
+
+    try plan.finalize(false);
+    try tensorArena.allocateStorage();
+
+    // a[0] = [[1, 2], [3, 4]]
+    // a[1] = [[5, 6], [7, 8]]
+    @memcpy(a.slice(f32).?, &[_]f32{ 1, 2, 3, 4, 5, 6, 7, 8 });
+
+    // b = [[1, 0], [0, 1]] (identity)
+    @memcpy(b.slice(f32).?, &[_]f32{ 1, 0, 0, 1 });
+
+    try plan.forward();
+
+    // c should be identical to a
+    try testing.expectEqualSlices(f32, &[_]f32{ 1, 2, 3, 4, 5, 6, 7, 8 }, c.slice(f32).?);
+}
+
+test "op: batched matmul backward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
+
+    // a: (2, 1, 2), b: (2, 1) -> out: (2, 1, 1)
+    const shapeA = Shape.fromSlice(&.{ 2, 1, 2 });
+    const shapeB = Shape.fromSlice(&.{ 2, 1 });
+    const a = try plan.createInput("a", .float32, shapeA, true);
+    const b = try plan.createInput("b", .float32, shapeB, true);
+
+    const c = try batchedMatMul(&plan, a, b);
+    try plan.registerOutput("c", c);
+
+    try plan.finalize(true);
+    try tensorArena.allocateStorage();
+
+    // a[0] = [[1, 2]], a[1] = [[3, 4]]
+    @memcpy(a.slice(f32).?, &[_]f32{ 1, 2, 3, 4 });
+    // b = [[5], [6]]
+    @memcpy(b.slice(f32).?, &[_]f32{ 5, 6 });
+
+    try plan.forward();
+
+    // c[0] = 1*5 + 2*6 = 17
+    // c[1] = 3*5 + 4*6 = 15 + 24 = 39
+    try testing.expectEqual(17.0, c.slice(f32).?[0]);
+    try testing.expectEqual(39.0, c.slice(f32).?[1]);
+
+    // dC = [[1], [1]]
+    @memset(c.grad.?.slice(f32).?, 1.0);
+    @memset(a.grad.?.slice(f32).?, 0);
+    @memset(b.grad.?.slice(f32).?, 0);
+
+    try plan.backward();
+
+    // dA[b, m, n] = sum_k (dOut[b, m, k] * B[n, k])
+    // dA[0, 0, 0] = dC[0,0,0] * B[0, 0] = 1 * 5 = 5
+    // dA[0, 0, 1] = dC[0,0,0] * B[1, 0] = 1 * 6 = 6
+    // dA[1, 0, 0] = dC[1,0,0] * B[0, 0] = 1 * 5 = 5
+    // dA[1, 0, 1] = dC[1,0,0] * B[1, 0] = 1 * 6 = 6
+    try testing.expectEqualSlices(f32, &[_]f32{ 5, 6, 5, 6 }, a.grad.?.slice(f32).?);
+
+    // dB[n, k] = sum_b,m (dOut[b, m, k] * A[b, m, n])
+    // dB[0, 0] = dC[0,0,0]*A[0,0,0] + dC[1,0,0]*A[1,0,0] = 1*1 + 1*3 = 4
+    // dB[1, 0] = dC[0,0,0]*A[0,0,1] + dC[1,0,0]*A[1,0,1] = 1*2 + 1*4 = 6
+    try testing.expectEqualSlices(f32, &[_]f32{ 4, 6 }, b.grad.?.slice(f32).?);
 }
