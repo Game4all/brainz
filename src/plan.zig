@@ -175,7 +175,7 @@ pub const ExecutionPlan = struct {
                 if (out.requires_grad and !out.isView() and out.grad == null)
                     out.grad = try self.arena.makeTensor(out.dtype, out.shape, false);
 
-                for (op.inputs) |in| {
+                for (op.inputs[0..op.n_inputs]) |in| {
                     if (in.requires_grad and !in.isView() and in.grad == null) {
                         const inT: *Tensor = @constCast(in);
                         inT.grad = try self.arena.makeTensor(in.dtype, in.shape, false);

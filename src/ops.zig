@@ -1,9 +1,11 @@
 const std = @import("std");
 const tensor = @import("tensor.zig");
 const prog = @import("plan.zig");
+
 const elemwise_ops = @import("ops/elemwise.zig");
 const matmul_ops = @import("ops/matmul.zig");
 const loss_ops = @import("ops/loss.zig");
+const activations_ops = @import("ops/activations.zig");
 
 const Tensor = tensor.Tensor;
 const TensorArena = tensor.TensorArena;
@@ -53,6 +55,12 @@ const OPS = struct {
         .name = "BatchedMatMul",
         .forward = matmul_ops.forwardBatchedMatMul,
         .backward = matmul_ops.backwardBatchedMatMul,
+    };
+
+    pub const RELU: OpInfo = .{
+        .name = "ReLU",
+        .forward = activations_ops.forwardReLU,
+        .backward = activations_ops.backwardReLU,
     };
 };
 
@@ -133,6 +141,12 @@ pub fn mseLoss(plan: *ExecutionPlan, a: *const Tensor, b: *const Tensor) !*const
 
     const out = try plan.arena.makeTensor(a.dtype, .fromSlice(&.{1}), a.requires_grad or b.requires_grad);
     try plan.append(&OPS.MSE, &.{ a, b }, out, null);
+    return out;
+}
+
+pub fn relu(plan: *ExecutionPlan, a: *const Tensor) !*const Tensor {
+    const out = try plan.arena.makeTensor(a.dtype, a.shape, a.requires_grad);
+    try plan.append(&OPS.RELU, &.{a}, out, null);
     return out;
 }
 
@@ -805,4 +819,63 @@ test "op: batched matmul backward" {
     // dB[0, 0] = dC[0,0,0]*A[0,0,0] + dC[1,0,0]*A[1,0,0] = 1*1 + 1*3 = 4
     // dB[1, 0] = dC[0,0,0]*A[0,0,1] + dC[1,0,0]*A[1,0,1] = 1*2 + 1*4 = 6
     try testing.expectEqualSlices(f32, &[_]f32{ 4, 6 }, b.grad.?.slice(f32).?);
+}
+
+test "op: relu forward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
+
+    const shape = comptime Shape.fromSlice(&.{4});
+    const a = try plan.createInput("a", .float32, shape, false);
+
+    const b = try relu(&plan, a);
+    try plan.registerOutput("b", b);
+
+    try plan.finalize(false);
+    try tensorArena.allocateStorage();
+
+    const aSlice = a.slice(f32).?;
+    @memcpy(aSlice, &[_]f32{ -1.0, 0.0, 1.0, 2.0 });
+
+    try plan.forward();
+
+    const bSlice = b.slice(f32).?;
+    try testing.expectEqualSlices(f32, &[_]f32{ 0.0, 0.0, 1.0, 2.0 }, bSlice);
+}
+
+test "op: relu backward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
+    defer plan.deinit();
+
+    const shape = comptime Shape.fromSlice(&.{4});
+    const a = try plan.createInput("a", .float32, shape, true);
+
+    const b = try relu(&plan, a);
+    try plan.registerOutput("b", b);
+
+    try plan.finalize(true);
+    try tensorArena.allocateStorage();
+
+    @memcpy(a.slice(f32).?, &[_]f32{ -1.0, 0.0, 1.0, 2.0 });
+
+    try plan.forward();
+
+    @memset(b.grad.?.slice(f32).?, 1.0);
+    @memset(a.grad.?.slice(f32).?, 0);
+
+    try plan.backward();
+
+    try testing.expectEqualSlices(f32, &[_]f32{ 0.0, 0.0, 1.0, 1.0 }, a.grad.?.slice(f32).?);
 }
