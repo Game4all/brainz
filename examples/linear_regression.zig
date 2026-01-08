@@ -9,6 +9,8 @@ const Dtype = brainz.Dtype;
 const Shape = brainz.Shape;
 const Tensor = brainz.Tensor;
 const TensorArena = brainz.TensorArena;
+
+const LinearPlan = brainz.LinearPlan;
 const ExecutionPlan = brainz.ExecutionPlan;
 
 pub fn main() !void {
@@ -32,27 +34,29 @@ pub fn main() !void {
     const b_shape: Shape = comptime .fromSlice(&.{1});
 
     // define plan and linear regression model
-    var plan: ExecutionPlan = .init(&tensorArena, allocator);
-    defer plan.deinit();
+    var planBuilder: LinearPlan = .init(&tensorArena, allocator);
+    errdefer planBuilder.deinit();
 
     // create X and target Y inputs
-    const x = try plan.createInput("x", .float32, x_shape, false);
-    const y_target = try plan.createInput("y", .float32, y_shape, false);
+    const x = try planBuilder.createInput("x", .float32, x_shape, false);
+    const y_target = try planBuilder.createInput("y", .float32, y_shape, false);
 
     // create tensors for model parameters (trainable)
-    const w = try plan.createParam(.float32, w_shape);
-    const b = try plan.createParam(.float32, b_shape);
+    const w = try planBuilder.createParam(.float32, w_shape);
+    const b = try planBuilder.createParam(.float32, b_shape);
 
     // y_pred = x * w + b
-    const xw = try ops.mul(&plan, x, w);
-    const y_pred = try ops.add(&plan, xw, b);
+    const xw = try ops.mul(&planBuilder, x, w);
+    const y_pred = try ops.add(&planBuilder, xw, b);
 
     // loss = mse(y_pred, y_target)
-    const loss = try ops.mseLoss(&plan, y_pred, y_target);
-    try plan.registerOutput("loss", loss);
+    const loss = try ops.mseLoss(&planBuilder, y_pred, y_target);
+    try planBuilder.registerOutput("loss", loss);
 
     // finalize plan and allocate backing memory for tensors
-    try plan.finalize(true);
+    var plan: ExecutionPlan = try planBuilder.finalize(true);
+    defer plan.deinit();
+
     try tensorArena.allocateStorage();
 
     // initialize default PRNG

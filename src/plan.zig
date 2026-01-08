@@ -34,13 +34,109 @@ const OpNode = struct {
     extra_data: ?*anyopaque,
 };
 
-/// Represents a linear execution plan with operations to be executed
+/// Represents a lowered, immutable and executable plan ready to be dispatched.
 pub const ExecutionPlan = struct {
-    const Flags = packed struct(u2) {
-        finalized: bool = false,
+    const Flags = packed struct(u1) {
         allow_backprop: bool = false,
     };
 
+    /// The arena managing the tensors of this graph.
+    /// This arena may be used to create intermediate tensors for the operation results.
+    arena: *TensorArena,
+    /// allocator for storing plan metadata and operations
+    allocator: std.mem.Allocator,
+    /// list of operations
+    ops: []OpNode,
+    /// inputs of the plan
+    prog_inputs: std.StringArrayHashMapUnmanaged(*const Tensor),
+    /// outputs of the plan
+    prog_outputs: std.StringArrayHashMapUnmanaged(*const Tensor),
+    /// parameters of the plan
+    prog_params: []*const Tensor,
+    // internal flags for tracking plan compilation state
+    flags: Flags,
+
+    // ================================================= Tensor APIs ==================================================
+
+    /// Retrieves a tensor by name from inputs.
+    pub fn getInput(self: *const @This(), name: []const u8) ?*const Tensor {
+        if (self.prog_inputs.get(name)) |ten|
+            return ten;
+
+        return null;
+    }
+
+    /// Retrieves all outputs of the plan
+    pub fn getOutput(self: *const @This(), name: []const u8) ?*const Tensor {
+        if (self.prog_outputs.get(name)) |ten|
+            return ten;
+
+        return null;
+    }
+
+    /// Returns all the parameters of this plan.
+    pub inline fn getParams(self: *const @This()) []*const Tensor {
+        return self.prog_params;
+    }
+
+    // ======================================================= ExecutionPlan finalization and passes ============================================
+
+    /// Performs a forward pass of the plan.
+    pub fn forward(self: *@This()) !void {
+        for (self.ops) |op_node| {
+            try op_node.op_info.forward(
+                op_node.inputs[0..op_node.n_inputs],
+                op_node.output,
+                op_node.extra_data,
+            );
+        }
+    }
+
+    /// Resets gradients of all tensors attached to the plan to zero.
+    /// # Note
+    /// - You should call this before calling `backward()` to accumulate gradients properly.
+    pub fn zeroGrad(self: *@This()) void {
+        for (self.ops) |op| {
+            if (op.output.grad) |grad|
+                grad.zero();
+
+            for (op.inputs[0..op.n_inputs]) |input| {
+                if (input.grad) |grad|
+                    grad.zero();
+            }
+        }
+    }
+
+    /// Performs a backward pass of the plan.
+    pub fn backward(self: *@This()) !void {
+        if (!self.flags.allow_backprop) return error.BackpropNotEnabled;
+
+        var i: usize = self.ops.len;
+        while (i > 0) {
+            i -= 1;
+            const op_node = self.ops[i];
+            if (op_node.output.grad) |grad_output| {
+                try op_node.op_info.backward(
+                    op_node.inputs[0..op_node.n_inputs],
+                    op_node.output,
+                    grad_output,
+                    op_node.extra_data,
+                );
+            }
+        }
+    }
+
+    /// Frees the memory backing the plan
+    pub fn deinit(self: *@This()) void {
+        self.allocator.free(self.ops);
+        self.allocator.free(self.prog_params);
+        self.prog_outputs.deinit(self.allocator);
+        self.prog_inputs.deinit(self.allocator);
+    }
+};
+
+/// Represents a linear, mutable execution plan.
+pub const LinearPlan = struct {
     /// The arena managing the tensors of this graph.
     /// This arena may be used to create intermediate tensors for the operation results.
     arena: *TensorArena,
@@ -54,8 +150,8 @@ pub const ExecutionPlan = struct {
     prog_outputs: std.StringArrayHashMapUnmanaged(*const Tensor),
     /// parameters of the plan
     prog_params: std.ArrayList(*const Tensor),
-    // internal flags for tracking plan compilation state
-    flags: Flags,
+    // internal flag to track whether the plan was consumed or not (useful for determining if data is still owned by the plan or not)
+    finalized: bool,
 
     /// Initializes an empty plan
     pub fn init(arena: *TensorArena, alloc: Allocator) @This() {
@@ -66,15 +162,15 @@ pub const ExecutionPlan = struct {
             .prog_outputs = .empty,
             .prog_params = .empty,
             .ops = .empty,
-            .flags = .{},
+            .finalized = false,
         };
     }
 
     /// Appends an operation to the plan.
     /// # Note
     /// This is a low-level operation, and you should use the operations in the `ops` module instead.
-    pub fn append(self: *@This(), op_info: *const OpInfo, inputs: []const *const Tensor, out: *const Tensor, extra: ?*anyopaque) !void {
-        if (self.flags.finalized) return error.ProgramIsFinalized;
+    pub fn appendOp(self: *@This(), op_info: *const OpInfo, inputs: []const *const Tensor, out: *const Tensor, extra: ?*anyopaque) !void {
+        if (self.finalized) return error.ProgramIsFinalized;
         if (inputs.len > OpNode.MAX_INPUTS) {
             if (@inComptime()) {
                 @compileError(std.fmt.comptimePrint("Expected at most {} inputs, got {} inputs instead.", .{ OpNode.MAX_INPUTS, inputs.len }));
@@ -93,17 +189,13 @@ pub const ExecutionPlan = struct {
         try self.ops.append(self.allocator, node);
     }
 
-    // ================================================= Tensor APIs ==================================================
-
     /// Registers a tensor as an input.
     pub fn registerInput(self: *@This(), input_name: []const u8, input: *const Tensor) !void {
-        if (self.flags.finalized) return error.ProgramIsFinalized;
         try self.prog_inputs.put(self.allocator, input_name, input);
     }
 
     /// Creates a tensor as an input and registers it with the plan
     pub fn createInput(self: *@This(), input_name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) !*const Tensor {
-        if (self.flags.finalized) return error.ProgramIsFinalized;
         const t = try self.arena.makeTensor(dtype, shape, require_grad);
         try self.prog_inputs.put(self.allocator, input_name, t);
         return t;
@@ -119,13 +211,11 @@ pub const ExecutionPlan = struct {
 
     /// Registers a tensor as an output.
     pub fn registerOutput(self: *@This(), output_name: []const u8, output: *const Tensor) !void {
-        if (self.flags.finalized) return error.ProgramIsFinalized;
         try self.prog_outputs.put(self.allocator, output_name, output);
     }
 
     /// Creates a tensor as an output and registers it with the plan
     pub fn createOutput(self: *@This(), output_name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) !*const Tensor {
-        if (self.flags.finalized) return error.ProgramIsFinalized;
         const t = try self.arena.makeTensor(dtype, shape, require_grad);
         try self.prog_outputs.put(self.allocator, output_name, t);
         return t;
@@ -141,31 +231,17 @@ pub const ExecutionPlan = struct {
 
     /// Creates a tensor and registers it as an optimizable parameter for the plan.
     pub fn createParam(self: *@This(), dtype: Dtype, shape: Shape) !*const Tensor {
-        if (self.flags.finalized) return error.ProgramIsFinalized;
         const t = try self.arena.makeTensor(dtype, shape, true); // we consider parameters are optimizable by default
         try self.prog_params.append(self.allocator, t);
         return t;
     }
 
-    /// Returns all the parameters of this plan.
-    pub inline fn getParams(self: *const @This()) []*const Tensor {
-        return self.prog_params.items;
-    }
-
-    // ======================================================= ExecutionPlan finalization and passes ============================================
-
     /// Finalizes a plan for execution.
-    /// # Args
-    /// - `backprop`: indicates whether to allocate gradient tensors for backpropagation.
-    /// All tensors which have `require_grad` set to true will have a grad tensor attached to them for back propagation if `backprop` is enabled.
-    pub fn finalize(self: *@This(), backprop: bool) !void {
-        if (self.flags.finalized)
+    /// # Note
+    /// This operation consumes the `LinearPlan` and returns an `ExecutionPlan`
+    pub fn finalize(self: *@This(), backprop: bool) !ExecutionPlan {
+        if (self.finalized)
             return error.AlreadyFinalized;
-
-        // plan is now considered finalized and can't be mutated anymore.
-        self.flags.finalized = true;
-        // allow user to call backprop
-        self.flags.allow_backprop = backprop;
 
         // allocate grad tensors for tensors which require a gradient, aren't views and do not have a gradient tensor already iff backprop is enabled
         if (backprop) {
@@ -183,62 +259,41 @@ pub const ExecutionPlan = struct {
                 }
             }
         }
+
+        // make all the plan info immutable by making owned slices.
+        const ownedNodes = try self.ops.toOwnedSlice(self.allocator);
+        errdefer self.allocator.free(ownedNodes);
+
+        const ownedParams = try self.prog_params.toOwnedSlice(self.allocator);
+        errdefer self.allocator.free(ownedParams);
+
+        const ownedInputs = self.prog_inputs;
+        const ownedOutputs = self.prog_outputs;
+
+        const plan: ExecutionPlan = .{
+            .allocator = self.allocator,
+            .ops = ownedNodes,
+            .arena = self.arena,
+            .flags = .{ .allow_backprop = backprop },
+            .prog_inputs = ownedInputs,
+            .prog_outputs = ownedOutputs,
+            .prog_params = ownedParams,
+        };
+
+        self.* = undefined;
+        self.finalized = true;
+
+        return plan;
     }
 
-    /// Performs a forward pass of the plan.
-    pub fn forward(self: *@This()) !void {
-        if (!self.flags.finalized)
-            return error.NotFinalized;
-
-        for (self.ops.items) |op_node| {
-            try op_node.op_info.forward(
-                op_node.inputs[0..op_node.n_inputs],
-                op_node.output,
-                op_node.extra_data,
-            );
-        }
-    }
-
-    /// Resets gradients of all tensors attached to the plan to zero.
-    /// # Note
-    /// - You should call this before calling `backward()` to accumulate gradients properly.
-    pub fn zeroGrad(self: *@This()) void {
-        for (self.ops.items) |op| {
-            if (op.output.grad) |grad|
-                grad.zero();
-
-            for (op.inputs[0..op.n_inputs]) |input| {
-                if (input.grad) |grad|
-                    grad.zero();
-            }
-        }
-    }
-
-    /// Performs a backward pass of the plan.
-    pub fn backward(self: *@This()) !void {
-        if (!self.flags.finalized) return error.NotFinalized;
-        if (!self.flags.allow_backprop) return error.BackpropNotEnabled;
-
-        var i: usize = self.ops.items.len;
-        while (i > 0) {
-            i -= 1;
-            const op_node = self.ops.items[i];
-            if (op_node.output.grad) |grad_output| {
-                try op_node.op_info.backward(
-                    op_node.inputs[0..op_node.n_inputs],
-                    op_node.output,
-                    grad_output,
-                    op_node.extra_data,
-                );
-            }
-        }
-    }
-
-    /// Frees the memory backing the plan
+    /// Frees the allocated memory if the plan isn't finalized yet else does nothing.
     pub fn deinit(self: *@This()) void {
-        self.ops.deinit(self.allocator);
-        self.prog_outputs.deinit(self.allocator);
-        self.prog_inputs.deinit(self.allocator);
+        if (!self.finalized) {
+            self.ops.deinit(self.allocator);
+            self.prog_inputs.deinit(self.allocator);
+            self.prog_outputs.deinit(self.allocator);
+            self.prog_params.deinit(self.allocator);
+        }
     }
 };
 
@@ -250,12 +305,15 @@ test "creating an empty plan" {
     var tensorArena: TensorArena = .init(memArena.allocator());
     defer tensorArena.deinit();
 
-    // create executable plan
-    var plan: ExecutionPlan = .init(&tensorArena, memArena.allocator());
-    defer plan.deinit();
+    // create a linear plan
+    var planBuilder: LinearPlan = .init(&tensorArena, memArena.allocator());
+    errdefer planBuilder.deinit();
 
-    _ = try plan.createInput("input", .float32, comptime .fromSlice(&.{ 2, 3, 4 }), false);
-    _ = try plan.createOutput("output", .float32, comptime .fromSlice(&.{ 2, 3, 4 }), false);
+    _ = try planBuilder.createInput("input", .float32, comptime .fromSlice(&.{ 2, 3, 4 }), false);
+    _ = try planBuilder.createOutput("output", .float32, comptime .fromSlice(&.{ 2, 3, 4 }), false);
+
+    var plan: ExecutionPlan = try planBuilder.finalize(false);
+    defer plan.deinit();
 
     const i = plan.getInput("input");
     const o = plan.getOutput("output");

@@ -7,6 +7,7 @@ const optimizers = @import("optim.zig");
 
 pub const Tensor = tensor.Tensor;
 pub const TensorArena = tensor.TensorArena;
+pub const LinearPlan = prog.LinearPlan;
 pub const ExecutionPlan = prog.ExecutionPlan;
 pub const Dtype = tensor.Dtype;
 pub const Shape = tensor.Shape;

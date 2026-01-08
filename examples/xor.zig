@@ -9,6 +9,8 @@ const Dtype = brainz.Dtype;
 const Shape = brainz.Shape;
 const Tensor = brainz.Tensor;
 const TensorArena = brainz.TensorArena;
+
+const LinearPlan = brainz.LinearPlan;
 const ExecutionPlan = brainz.ExecutionPlan;
 
 pub fn main() !void {
@@ -28,9 +30,9 @@ pub fn main() !void {
     const x_shape: Shape = comptime .fromSlice(&.{ 4, 2 });
     const y_shape: Shape = comptime .fromSlice(&.{ 4, 1 });
 
-    // create execution plan
-    var plan: ExecutionPlan = .init(&tensorArena, allocator);
-    defer plan.deinit();
+    // create a linear execution plan
+    var planBuilder: LinearPlan = .init(&tensorArena, allocator);
+    errdefer planBuilder.deinit();
 
     // layer 1
     // 2 inputs -> 4 hidden neurons
@@ -43,31 +45,33 @@ pub fn main() !void {
     const b2_shape: Shape = comptime .fromSlice(&.{1});
 
     // create inputs
-    const x = try plan.createInput("x", .float32, x_shape, false);
-    const y_target = try plan.createInput("y", .float32, y_shape, false);
+    const x = try planBuilder.createInput("x", .float32, x_shape, false);
+    const y_target = try planBuilder.createInput("y", .float32, y_shape, false);
 
     // create weights and biases
-    const w1 = try plan.createParam(.float32, w1_shape);
-    const b1 = try plan.createParam(.float32, b1_shape);
-    const w2 = try plan.createParam(.float32, w2_shape);
-    const b2 = try plan.createParam(.float32, b2_shape);
+    const w1 = try planBuilder.createParam(.float32, w1_shape);
+    const b1 = try planBuilder.createParam(.float32, b1_shape);
+    const w2 = try planBuilder.createParam(.float32, w2_shape);
+    const b2 = try planBuilder.createParam(.float32, b2_shape);
 
     // implement the model
     // h1 = relu(x @ w1 + b1)
-    const xw1 = try ops.matmul(&plan, x, w1);
-    const z1 = try ops.add(&plan, xw1, b1);
-    const h1 = try ops.relu(&plan, z1);
+    const xw1 = try ops.matmul(&planBuilder, x, w1);
+    const z1 = try ops.add(&planBuilder, xw1, b1);
+    const h1 = try ops.relu(&planBuilder, z1);
 
     // y_pred = h1 @ w2 + b2
-    const hw2 = try ops.matmul(&plan, h1, w2);
-    const y_pred = try ops.add(&plan, hw2, b2);
+    const hw2 = try ops.matmul(&planBuilder, h1, w2);
+    const y_pred = try ops.add(&planBuilder, hw2, b2);
 
     // loss = mse(y_pred, y_target)
-    const loss = try ops.mseLoss(&plan, y_pred, y_target);
-    try plan.registerOutput("loss", loss);
+    const loss = try ops.mseLoss(&planBuilder, y_pred, y_target);
+    try planBuilder.registerOutput("loss", loss);
 
     // finalize the plan and allocate storage
-    try plan.finalize(true);
+    var plan = try planBuilder.finalize(true);
+    defer plan.deinit();
+
     try tensorArena.allocateStorage();
 
     // Initialize data
