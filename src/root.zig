@@ -15,10 +15,12 @@ pub const Shape = tensor.Shape;
 // Reexported modules
 pub const ops = op;
 pub const optim = optimizers;
+pub const nn = @import("nn.zig");
 
 comptime {
     std.testing.refAllDeclsRecursive(tensor);
     std.testing.refAllDeclsRecursive(prog);
     std.testing.refAllDeclsRecursive(op);
+    std.testing.refAllDeclsRecursive(nn);
     std.testing.refAllDeclsRecursive(optimizers);
 }

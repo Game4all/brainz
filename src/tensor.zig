@@ -157,13 +157,25 @@ pub const Dtype = enum {
             else => false,
         };
     }
-};
 
-const dtype_to_size = std.enums.EnumArray(Dtype, usize).init(.{
-    .float32 = @sizeOf(f32),
-    .float64 = @sizeOf(f64),
-    .usize64 = @sizeOf(u64),
-});
+    /// Returns the backing size of a single element with the given dtype.
+    pub inline fn getBackingSize(self: Dtype) usize {
+        return switch (self) {
+            .float32 => @sizeOf(f32),
+            .float64 => @sizeOf(f64),
+            .usize64 => @sizeOf(usize),
+        };
+    }
+
+    /// Returns the Dtype backing the passed in zig type.
+    pub fn getBackingDType(comptime ty: type) Dtype {
+        comptime switch (@typeInfo(ty)) {
+            .int => |i| return if (i.signedness == .unsigned and i.bits == 64) .usize64 else @compileError("No supported type"),
+            .float => |f| return if (f.bits == 64) .float64 else .float32,
+            else => @compileError("Unsupported backing type"),
+        };
+    }
+};
 
 /// Represents a logical tensor (essentially a multi-dimensional matrix) which may be backed by physical memory.
 pub const Tensor = struct {
@@ -241,7 +253,7 @@ pub const TensorArena = struct {
 
             if (tensor.storage) |storage| {
                 //FIXME: fix storage freeing
-                const byte_size: usize = tensor.shape.totalLength() * dtype_to_size.get(tensor.dtype);
+                const byte_size: usize = tensor.shape.totalLength() * tensor.dtype.getBackingSize();
                 const typed_storage = @as([*]u8, @ptrCast(storage));
                 self.allocator.free(typed_storage[0..byte_size]);
             }
@@ -282,7 +294,7 @@ pub const TensorArena = struct {
         for (self.tensors.items) |tensor| {
             if (tensor.isView()) continue;
 
-            const byte_size: usize = tensor.shape.totalLength() * dtype_to_size.get(tensor.dtype);
+            const byte_size: usize = tensor.shape.totalLength() * tensor.dtype.getBackingSize();
             const storage = try self.allocator.alloc(u8, byte_size);
             tensor.storage = storage.ptr;
         }
