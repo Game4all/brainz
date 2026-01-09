@@ -59,19 +59,32 @@ pub fn Linear(comptime ty: type, comptime bias: bool) type {
             };
         }
 
+        /// Initializes the weights of the layer using the provided random generator.
+        pub fn randomizeWeights(self: *const Self, rnd: std.Random) void {
+            if (self.weights.slice(f32)) |storage| {
+                for (storage) |*val|
+                    val.* = rnd.floatNorm(f32) * 0.1;
+            }
+
+            if (self.biases) |b| {
+                if (b.slice(f32)) |storage| {
+                    for (storage) |*val|
+                        val.* = rnd.floatNorm(f32) * 0.1;
+                }
+            }
+        }
+
         /// Performs a forward pass of the layer.
         ///
-        /// # Parameters
+        /// # Args
         /// - `plan`: The linear plan to append operations to
-        /// - `input`: Input tensor of shape `(batch_size, ..., in_features)`
+        /// - `input`: Input tensor of shape `(batch_size, in_features)`.
+        ///
         ///
         /// # Returns
         /// Output tensor of shape `(batch_size, out_features)`
         pub fn forward(self: *const Self, plan: *LinearPlan, input: *const Tensor) !*const Tensor {
-            // Compute xW using batched matrix multiplication
-            const xw = try ops.batchedMatMul(plan, input, self.weights);
-
-            // Add bias if present
+            const xw = try ops.matmul(plan, input, self.weights);
             return if (self.biases) |b| try ops.add(plan, xw, b) else xw;
         }
     };

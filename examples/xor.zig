@@ -9,9 +9,39 @@ const Dtype = brainz.Dtype;
 const Shape = brainz.Shape;
 const Tensor = brainz.Tensor;
 const TensorArena = brainz.TensorArena;
+const Linear = brainz.nn.Linear;
 
 const LinearPlan = brainz.LinearPlan;
 const ExecutionPlan = brainz.ExecutionPlan;
+
+//TODO: design a comptime API that essentially wraps a net structure that:
+// -  implements automatically a forward function based on declaration order
+// - a function to save / load weights based on declaration order
+
+/// A small MLP to learn the XOR truth table.
+const XorMlp = struct {
+    layer_1: Linear(f32, true),
+    layer_2: Linear(f32, true),
+
+    pub fn init(plan: *LinearPlan) !@This() {
+        return .{
+            .layer_1 = try .init(plan, 2, 4),
+            .layer_2 = try .init(plan, 4, 1),
+        };
+    }
+
+    pub fn randomizeWeights(self: *const @This(), rnd: std.Random) void {
+        self.layer_1.randomizeWeights(rnd);
+        self.layer_2.randomizeWeights(rnd);
+    }
+
+    pub fn forward(self: *const @This(), plan: *LinearPlan, input: *const Tensor) !*const Tensor {
+        const a = try self.layer_1.forward(plan, input);
+        const h1 = try ops.relu(plan, a);
+        const b = try self.layer_2.forward(plan, h1);
+        return b;
+    }
+};
 
 pub fn main() !void {
     var gpa = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -34,35 +64,15 @@ pub fn main() !void {
     var planBuilder: LinearPlan = .init(&tensorArena, allocator);
     errdefer planBuilder.deinit();
 
-    // layer 1
-    // 2 inputs -> 4 hidden neurons
-    const w1_shape: Shape = comptime .fromSlice(&.{ 2, 4 });
-    const b1_shape: Shape = comptime .fromSlice(&.{4});
-
-    // layer 2
-    // 4 hidden -> 1 output
-    const w2_shape: Shape = comptime .fromSlice(&.{ 4, 1 });
-    const b2_shape: Shape = comptime .fromSlice(&.{1});
+    // initialize network
+    const xorMlp: XorMlp = try .init(&planBuilder);
 
     // create inputs
     const x = try planBuilder.createInput("x", .float32, x_shape, false);
     const y_target = try planBuilder.createInput("y", .float32, y_shape, false);
 
-    // create weights and biases
-    const w1 = try planBuilder.createParam(.float32, w1_shape);
-    const b1 = try planBuilder.createParam(.float32, b1_shape);
-    const w2 = try planBuilder.createParam(.float32, w2_shape);
-    const b2 = try planBuilder.createParam(.float32, b2_shape);
-
-    // implement the model
-    // h1 = relu(x @ w1 + b1)
-    const xw1 = try ops.matmul(&planBuilder, x, w1);
-    const z1 = try ops.add(&planBuilder, xw1, b1);
-    const h1 = try ops.relu(&planBuilder, z1);
-
-    // y_pred = h1 @ w2 + b2
-    const hw2 = try ops.matmul(&planBuilder, h1, w2);
-    const y_pred = try ops.add(&planBuilder, hw2, b2);
+    // do forward pass of the network
+    const y_pred = try xorMlp.forward(&planBuilder, x);
 
     // loss = mse(y_pred, y_target)
     const loss = try ops.mseLoss(&planBuilder, y_pred, y_target);
@@ -85,10 +95,7 @@ pub fn main() !void {
     var prng = std.Random.DefaultPrng.init(42);
     const random = prng.random();
 
-    for (w1.slice(f32).?) |*val| val.* = random.floatNorm(f32) * 0.1;
-    for (b1.slice(f32).?) |*val| val.* = random.floatNorm(f32) * 0.1;
-    for (w2.slice(f32).?) |*val| val.* = random.floatNorm(f32) * 0.1;
-    for (b2.slice(f32).?) |*val| val.* = random.floatNorm(f32) * 0.1;
+    xorMlp.randomizeWeights(random);
 
     // initialize the optimizer
     var sgd = optim.SGD.init(plan.getParams(), lr);
