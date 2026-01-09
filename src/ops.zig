@@ -70,6 +70,12 @@ const OPS = struct {
         .forward = activations_ops.forwardSigmoid,
         .backward = activations_ops.backwardSigmoid,
     };
+
+    pub const CROSS_ENTROPY: OpInfo = .{
+        .name = "CrossEntropy",
+        .forward = loss_ops.forwardCrossEntropy,
+        .backward = loss_ops.backwardCrossEntropy,
+    };
 };
 
 // ======================== Binary element-wise operations ==============================
@@ -149,6 +155,15 @@ pub fn mseLoss(plan: *LinearPlan, a: *const Tensor, b: *const Tensor) !*const Te
 
     const out = try plan.arena.makeTensor(a.dtype, .fromSlice(&.{1}), a.requires_grad or b.requires_grad);
     try plan.appendOp(&OPS.MSE, &.{ a, b }, out, null);
+    return out;
+}
+
+pub fn crossEntropyLoss(plan: *LinearPlan, a: *const Tensor, b: *const Tensor) !*const Tensor {
+    if (!a.shape.eql(b.shape)) return error.ShapeMismatch;
+    if (a.dtype != b.dtype) return error.DtypeMismatch;
+
+    const out = try plan.arena.makeTensor(a.dtype, .fromSlice(&.{1}), a.requires_grad or b.requires_grad);
+    try plan.appendOp(&OPS.CROSS_ENTROPY, &.{ a, b }, out, null);
     return out;
 }
 
@@ -798,16 +813,57 @@ test "op: batched matmul forward" {
     try tensorArena.allocateStorage();
 
     // a[0] = [[1, 2], [3, 4]]
-    // a[1] = [[5, 6], [7, 8]]
-    @memcpy(a.slice(f32).?, &[_]f32{ 1, 2, 3, 4, 5, 6, 7, 8 });
+    const aSlice = a.slice(f32).?;
+    @memcpy(aSlice, &[_]f32{ 1, 2, 3, 4, 5, 6, 7, 8 });
 
-    // b = [[1, 0], [0, 1]] (identity)
-    @memcpy(b.slice(f32).?, &[_]f32{ 1, 0, 0, 1 });
+    // b = [[1, 2], [3, 4]]
+    const bSlice = b.slice(f32).?;
+    @memcpy(bSlice, &[_]f32{ 1, 2, 3, 4 });
 
     try plan.forward();
 
-    // c should be identical to a
-    try testing.expectEqualSlices(f32, &[_]f32{ 1, 2, 3, 4, 5, 6, 7, 8 }, c.slice(f32).?);
+    const cSlice = c.slice(f32).?;
+    // result [0] = [[1, 2], [3, 4]] * [[1, 2], [3, 4]] = [[7, 10], [15, 22]]
+    // result [1] = [[5, 6], [7, 8]] * [[1, 2], [3, 4]] = [[23, 34], [31, 46]]
+    try testing.expectEqualSlices(f32, &[_]f32{ 7, 10, 15, 22, 23, 34, 31, 46 }, cSlice);
+}
+
+test "op: cross_entropy forward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var planBuilder: LinearPlan = .init(&tensorArena, memArena.allocator());
+    defer planBuilder.deinit();
+
+    const shape: Shape = comptime .fromSlice(&.{3});
+
+    const pred = try planBuilder.createInput("pred", .float32, shape, false); // predicted class probs
+    const target = try planBuilder.createInput("target", .float32, shape, false); // target class probs
+
+    const loss = try crossEntropyLoss(&planBuilder, pred, target);
+    try planBuilder.registerOutput("loss", loss);
+
+    var plan = try planBuilder.finalize(false);
+    defer plan.deinit();
+
+    try tensorArena.allocateStorage();
+
+    const predSlice = pred.slice(f32).?;
+    @memcpy(predSlice, &[_]f32{ 0.1, 0.7, 0.2 });
+
+    const targetSlice = target.slice(f32).?;
+    @memcpy(targetSlice, &[_]f32{ 0.0, 1.0, 0.0 });
+
+    // loss = -(0.0 * log(0.1) + 1.0 * log(0.7) + 0.0 * log(0.2)) / 3
+    // loss = -log(0.7) / 3 = 0.35667 / 3 = 0.11889
+
+    try plan.forward();
+
+    const lossScalar = loss.scalar(f32).?;
+    try testing.expectApproxEqAbs(@as(f32, 0.11889), lossScalar, 1e-5);
 }
 
 test "op: batched matmul backward" {
