@@ -60,7 +60,7 @@ pub fn Linear(comptime ty: type, comptime bias: bool) type {
         }
 
         /// Initializes the weights of the layer using the provided random generator.
-        pub fn randomizeWeights(self: *const Self, rnd: std.Random) void {
+        pub fn initializeWeights(self: *const Self, rnd: std.Random) void {
             if (self.weights.slice(f32)) |storage| {
                 for (storage) |*val|
                     val.* = rnd.floatNorm(f32) * 0.1;
@@ -86,6 +86,117 @@ pub fn Linear(comptime ty: type, comptime bias: bool) type {
         pub fn forward(self: *const Self, plan: *LinearPlan, input: *const Tensor) !*const Tensor {
             const xw = try ops.matmul(plan, input, self.weights);
             return if (self.biases) |b| try ops.add(plan, xw, b) else xw;
+        }
+    };
+}
+
+const ActivationFunc = enum {
+    sigmoid,
+    relu,
+};
+
+/// A wrapper layer over an activation function (ReLU, Sigmoid) op.
+/// # Args
+/// - `activ`: The activation function to apply (relu, sigmoid) to the inputs of this layers.
+/// # Returns
+/// Output tensor of same shape as the input.
+pub fn Activation(comptime activ: ActivationFunc) type {
+    return struct {
+        const Self = @This();
+
+        /// Returns an initialized layer
+        pub const init: Self = .{};
+
+        pub fn forward(self: *const @This(), plan: *LinearPlan, input: *const Tensor) !*const Tensor {
+            _ = self;
+            return switch (activ) {
+                .relu => try ops.relu(plan, input),
+                .sigmoid => try ops.sigmoid(plan, input),
+            };
+        }
+    };
+}
+
+/// Validates that a type follows the Layer API at comptime.
+/// A layer MUST have the following function signatures implemented:
+/// - `fn forward(*const Self, *LinearPlan, *const Tensor) !*const Tensor`
+fn assertIsLayer(comptime L: type) void {
+
+    // check if the layer even has a forward() method
+    if (!std.meta.hasMethod(L, "forward"))
+        @compileError(std.fmt.comptimePrint("Layer type {s} doesn't have a forward method.", .{@typeName(L)}));
+
+    const fnArgs = std.meta.ArgsTuple(@TypeOf(L.forward));
+    const fields = std.meta.fields(fnArgs);
+
+    if (fields.len != 3)
+        @compileError(std.fmt.comptimePrint("Layer type {}'s `forward` method doesn't have the correct signature. Expected three arguments: (*const self, *LinearPlan, *const Tensor) ", .{@typeName(L)}));
+
+    const planTy = fields[fields.len - 2].type;
+    const tensorTy = fields[fields.len - 1].type;
+
+    if (planTy != *LinearPlan or tensorTy != *const Tensor)
+        @compileError(std.fmt.comptimePrint("Layer type {}'s `forward` method doesn't have the correct signature. Expected three arguments: (*const self, *LinearPlan, *const Tensor) ", .{@typeName(L)}));
+}
+
+/// A comptime wrapper for neural nets that execute in a sequence
+/// This provides automatically helpers for the forward pass based on a struct that describes the net architecture.
+/// # Note
+/// The architecture struct must implement an init function to initialize the network layers.
+pub fn Sequential(comptime T: type) type {
+
+    // assert that we passed in a struct and that all struct fields follow the layer API.
+    comptime switch (@typeInfo(T)) {
+        .@"struct" => |s| {
+            for (s.fields) |field|
+                assertIsLayer(field.type);
+        },
+        else => @compileError("Network must be initialized with a struct type"),
+    };
+
+    // assert the struct also has an init function to initialize all layers
+    if (!@hasDecl(T, "init"))
+        @compileError("The architecture struct must have an 'init' function to initialize the layers");
+
+    return struct {
+        const Self = @This();
+
+        layers: T,
+
+        /// Initializes the network layers.
+        /// # Args
+        /// - `args`: a tuple/struct passed to the inner struct's init function.
+        pub fn init(args: anytype) !Self {
+            return .{
+                .layers = try @call(.auto, T.init, args),
+            };
+        }
+
+        /// Performs a forward pass through all layers in the declared order.
+        /// # Args
+        /// - `input` is the tensor to be used for forward pass of this net.
+        pub fn forward(self: *const Self, plan: *LinearPlan, input: *const Tensor) !*const Tensor {
+            var current_input = input;
+
+            inline for (std.meta.fields(T)) |field| {
+                current_input = try @field(self.layers, field.name).forward(plan, current_input);
+            }
+
+            return current_input;
+        }
+
+        /// Initializes the weights of the layers holding parameters to sensible defaults using the provided random source.
+        pub fn initializeWeights(self: *const Self, rng: std.Random) void {
+            inline for (std.meta.fields(T)) |field| {
+                if (std.meta.hasMethod(field.type, "initializeWeights")) {
+                    @field(self.layers, field.name).initializeWeights(rng);
+                }
+            }
+        }
+
+        /// Returns the underlying architecture struct for manual access to the layers.
+        pub fn getInner(self: *const Self) *const T {
+            return &self.layers;
         }
     };
 }
@@ -118,4 +229,42 @@ test "Linear layer: initialization and shape" {
         try std.testing.expectEqual(1, b.shape.n_dimensions);
         try std.testing.expectEqualSlices(usize, &[_]usize{5}, b.shape.dimensions[0..b.shape.n_dimensions]);
     }
+}
+
+test "Sequential: testing automatic forward pass" {
+    var memArena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var planBuilder: LinearPlan = .init(&tensorArena, memArena.allocator());
+    defer planBuilder.deinit();
+
+    // declare a test architecture with two linear layers and a reLu inbetween.
+    const TestNet = struct {
+        l1: Linear(f32, true),
+        act: Activation(.relu),
+        l2: Linear(f32, true),
+
+        pub fn init(plan: *LinearPlan) !@This() {
+            return .{
+                .l1 = try Linear(f32, true).init(plan, 3, 4),
+                .act = .{},
+                .l2 = try Linear(f32, true).init(plan, 4, 2),
+            };
+        }
+    };
+
+    const Net = Sequential(TestNet);
+    const net = try Net.init(.{&planBuilder});
+
+    // create a dummy input tensor
+    const input = try planBuilder.createParam(.float32, Shape.fromSlice(&.{ 1, 3 }));
+    // get the output to compare its shape to the expected dimension shapes
+    const output = try net.forward(&planBuilder, input);
+
+    // expected output dims is (1, 2)
+    try std.testing.expectEqual(2, output.shape.n_dimensions);
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 1, 2 }, output.shape.dimensions[0..output.shape.n_dimensions]);
 }

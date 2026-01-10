@@ -9,39 +9,29 @@ const Dtype = brainz.Dtype;
 const Shape = brainz.Shape;
 const Tensor = brainz.Tensor;
 const TensorArena = brainz.TensorArena;
+
+const Activation = brainz.nn.Activation;
 const Linear = brainz.nn.Linear;
 
 const LinearPlan = brainz.LinearPlan;
 const ExecutionPlan = brainz.ExecutionPlan;
 
-//TODO: design a comptime API that essentially wraps a net structure that:
-// -  implements automatically a forward function based on declaration order
-// - a function to save / load weights based on declaration order
-
 /// A small MLP to learn the XOR truth table.
-const XorMlp = struct {
+const XorMLP = struct {
     layer_1: Linear(f32, true),
+    activ_1: Activation(.relu),
     layer_2: Linear(f32, true),
 
     pub fn init(plan: *LinearPlan) !@This() {
         return .{
             .layer_1 = try .init(plan, 2, 4),
+            .activ_1 = .init,
             .layer_2 = try .init(plan, 4, 1),
         };
     }
-
-    pub fn randomizeWeights(self: *const @This(), rnd: std.Random) void {
-        self.layer_1.randomizeWeights(rnd);
-        self.layer_2.randomizeWeights(rnd);
-    }
-
-    pub fn forward(self: *const @This(), plan: *LinearPlan, input: *const Tensor) !*const Tensor {
-        const a = try self.layer_1.forward(plan, input);
-        const h1 = try ops.relu(plan, a);
-        const b = try self.layer_2.forward(plan, h1);
-        return b;
-    }
 };
+
+const XorNet = brainz.nn.Sequential(XorMLP);
 
 pub fn main() !void {
     var gpa = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -65,7 +55,7 @@ pub fn main() !void {
     errdefer planBuilder.deinit();
 
     // initialize network
-    const xorMlp: XorMlp = try .init(&planBuilder);
+    const xorMlp: XorNet = try .init(.{&planBuilder});
 
     // create inputs
     const x = try planBuilder.createInput("x", .float32, x_shape, false);
@@ -95,7 +85,7 @@ pub fn main() !void {
     var prng = std.Random.DefaultPrng.init(42);
     const random = prng.random();
 
-    xorMlp.randomizeWeights(random);
+    xorMlp.initializeWeights(random);
 
     // initialize the optimizer
     var sgd = optim.SGD.init(plan.getParams(), lr);
