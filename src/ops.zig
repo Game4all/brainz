@@ -6,6 +6,7 @@ const elemwise_ops = @import("ops/elemwise.zig");
 const matmul_ops = @import("ops/matmul.zig");
 const loss_ops = @import("ops/loss.zig");
 const activations_ops = @import("ops/activations.zig");
+const reductions_ops = @import("ops/reductions.zig");
 
 const Tensor = tensor.Tensor;
 const TensorArena = tensor.TensorArena;
@@ -75,6 +76,12 @@ const OPS = struct {
         .name = "CrossEntropy",
         .forward = loss_ops.forwardCrossEntropy,
         .backward = loss_ops.backwardCrossEntropy,
+    };
+
+    pub const ARGMAX: OpInfo = .{
+        .name = "Argmax",
+        .forward = reductions_ops.forwardArgmax,
+        .backward = reductions_ops.backwardArgmax,
     };
 };
 
@@ -176,6 +183,27 @@ pub fn relu(plan: *LinearPlan, a: *const Tensor) !*const Tensor {
 pub fn sigmoid(plan: *LinearPlan, a: *const Tensor) !*const Tensor {
     const out = try plan.arena.makeTensor(a.dtype, a.shape, a.requires_grad);
     try plan.appendOp(&OPS.SIGMOID, &.{a}, out, null);
+    return out;
+}
+
+pub fn argMax(plan: *LinearPlan, a: *const Tensor, axis: usize) !*const Tensor {
+    if (axis >= a.shape.n_dimensions) return error.AxisOutOfBounds;
+
+    var outDims: [Shape.MAX_DIMENSIONS]usize = undefined;
+    var outNDimensions: usize = 0;
+    for (0..a.shape.n_dimensions) |d| {
+        if (d == axis) continue;
+        outDims[outNDimensions] = a.shape.dimensions[d];
+        outNDimensions += 1;
+    }
+
+    const outShape = if (outNDimensions == 0)
+        Shape.fromSlice(&.{1})
+    else
+        Shape.fromSlice(outDims[0..outNDimensions]);
+
+    const out = try plan.arena.makeTensor(.usize64, outShape, false);
+    try plan.appendOp(&OPS.ARGMAX, &.{a}, out, @ptrFromInt(axis));
     return out;
 }
 
@@ -1054,4 +1082,38 @@ test "op: sigmoid backward" {
     try plan.backward();
 
     try testing.expectApproxEqAbs(@as(f32, 0.25), a.grad.?.slice(f32).?[0], 1e-5);
+}
+
+test "op: argmax forward axis (2 dimensions)" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var planBuilder: LinearPlan = .init(&tensorArena, memArena.allocator());
+    defer planBuilder.deinit();
+
+    const shape = comptime Shape.fromSlice(&.{ 2, 3 });
+    const a = try planBuilder.createInput("a", .float32, shape, false);
+
+    // argMax on the innermost dimension -> shape (2)
+    const c = try argMax(&planBuilder, a, 1);
+    try planBuilder.registerOutput("c", c);
+
+    var plan = try planBuilder.finalize(false);
+    defer plan.deinit();
+
+    try tensorArena.allocateStorage();
+
+    const aSlice = a.slice(f32).?;
+    // [[1, 5, 2],
+    //  [4, 3, 6]]
+    @memcpy(aSlice, &[_]f32{ 1.0, 5.0, 2.0, 4.0, 3.0, 6.0 });
+
+    try plan.forward();
+
+    const cSlice = c.slice(u64).?;
+    try testing.expectEqual(@as(u64, 1), cSlice[0]); // argmax([1, 5, 2]) = 5 at index 1
+    try testing.expectEqual(@as(u64, 2), cSlice[1]); // argmax([4, 3, 6]) = 6 at index 2
 }
