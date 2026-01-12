@@ -83,6 +83,12 @@ const OPS = struct {
         .forward = reductions_ops.forwardArgmax,
         .backward = reductions_ops.backwardArgmax,
     };
+
+    pub const SOFTMAX: OpInfo = .{
+        .name = "Softmax",
+        .forward = activations_ops.forwardSoftmax,
+        .backward = activations_ops.backwardSoftmax,
+    };
 };
 
 // ======================== Binary element-wise operations ==============================
@@ -183,6 +189,13 @@ pub fn relu(plan: *LinearPlan, a: *const Tensor) !*const Tensor {
 pub fn sigmoid(plan: *LinearPlan, a: *const Tensor) !*const Tensor {
     const out = try plan.arena.makeTensor(a.dtype, a.shape, a.requires_grad);
     try plan.appendOp(&OPS.SIGMOID, &.{a}, out, null);
+    return out;
+}
+
+pub fn softmax(plan: *LinearPlan, a: *const Tensor, axis: usize) !*const Tensor {
+    if (axis >= a.shape.n_dimensions) return error.AxisOutOfBounds;
+    const out = try plan.arena.makeTensor(a.dtype, a.shape, a.requires_grad);
+    try plan.appendOp(&OPS.SOFTMAX, &.{a}, out, @ptrFromInt(axis));
     return out;
 }
 
@@ -1116,4 +1129,135 @@ test "op: argmax forward axis (2 dimensions)" {
     const cSlice = c.slice(u64).?;
     try testing.expectEqual(@as(u64, 1), cSlice[0]); // argmax([1, 5, 2]) = 5 at index 1
     try testing.expectEqual(@as(u64, 2), cSlice[1]); // argmax([4, 3, 6]) = 6 at index 2
+}
+
+test "op: softmax forward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var planBuilder: LinearPlan = .init(&tensorArena, memArena.allocator());
+    defer planBuilder.deinit();
+
+    const shape = Shape.fromSlice(&.{ 2, 3 });
+    const a = try planBuilder.createInput("a", .float32, shape, false);
+
+    const s = try softmax(&planBuilder, a, 1);
+    try planBuilder.registerOutput("s", s);
+
+    var plan = try planBuilder.finalize(false);
+    defer plan.deinit();
+
+    try tensorArena.allocateStorage();
+
+    const aSlice = a.slice(f32).?;
+    @memcpy(aSlice, &[_]f32{ 1.0, 2.0, 3.0, 0.0, 0.0, 0.0 });
+
+    try plan.forward();
+
+    const sSlice = s.slice(f32).?;
+    // row 0: [1, 2, 3]
+    // sum = e^1 + e^2 + e^3 = 30.193
+    // s[0] = e^1 / sum ~= 0.09003
+    // s[1] = e^2 / sum ~= 0.24473
+    // s[2] = e^3 / sum ~= 0.66524
+    try testing.expectApproxEqAbs(@as(f32, 0.09003), sSlice[0], 1e-5);
+    try testing.expectApproxEqAbs(@as(f32, 0.24473), sSlice[1], 1e-5);
+    try testing.expectApproxEqAbs(@as(f32, 0.66524), sSlice[2], 1e-5);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), sSlice[0] + sSlice[1] + sSlice[2], 1e-5);
+
+    // row 1: [0, 0, 0] -> [1/3, 1/3, 1/3]
+    try testing.expectApproxEqAbs(@as(f32, 0.33333), sSlice[3], 1e-5);
+}
+
+test "op: softmax backward" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var planBuilder: LinearPlan = .init(&tensorArena, memArena.allocator());
+    defer planBuilder.deinit();
+
+    const shape = Shape.fromSlice(&.{ 1, 2 });
+    const a = try planBuilder.createInput("a", .float32, shape, true);
+
+    const s = try softmax(&planBuilder, a, 1);
+    try planBuilder.registerOutput("s", s);
+
+    var plan = try planBuilder.finalize(true);
+    defer plan.deinit();
+
+    try tensorArena.allocateStorage();
+
+    const aSlice = a.slice(f32).?;
+    @memcpy(aSlice, &[_]f32{ 0.0, 0.0 });
+
+    try plan.forward();
+
+    const sGradSlice = s.grad.?.slice(f32).?;
+    @memcpy(sGradSlice, &[_]f32{ 1.0, 0.0 });
+    @memset(a.grad.?.slice(f32).?, 0);
+
+    try plan.backward();
+
+    const aGradSlice = a.grad.?.slice(f32).?;
+    // dL/dx0 = s0 * (dL/ds0 - (dL/ds0*s0 + dL/ds1*s1))
+    // s0 = 0.5, s1 = 0.5
+    // dL/ds0 = 1, dL/ds1 = 0
+    // dot = 1 * 0.5 + 0 * 0.5 = 0.5
+    // dL/dx0 = 0.5 * (1 - 0.5) = 0.25
+    // dL/dx1 = 0.5 * (0 - 0.5) = -0.25
+
+    try testing.expectApproxEqAbs(@as(f32, 0.25), aGradSlice[0], 1e-5);
+    try testing.expectApproxEqAbs(@as(f32, -0.25), aGradSlice[1], 1e-5);
+}
+
+test "op: softmax + cross_entropy compatibility" {
+    var memArena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    var planBuilder: LinearPlan = .init(&tensorArena, memArena.allocator());
+    defer planBuilder.deinit();
+
+    const shape = Shape.fromSlice(&.{ 1, 3 });
+    const logits = try planBuilder.createInput("logits", .float32, shape, true);
+    const targets = try planBuilder.createInput("targets", .float32, shape, false);
+
+    const probs = try softmax(&planBuilder, logits, 1);
+    const loss = try crossEntropyLoss(&planBuilder, probs, targets);
+    try planBuilder.registerOutput("loss", loss);
+
+    var plan = try planBuilder.finalize(true);
+    defer plan.deinit();
+
+    try tensorArena.allocateStorage();
+
+    const logitsSlice = logits.slice(f32).?;
+    @memcpy(logitsSlice, &[_]f32{ 1.0, 2.0, 3.0 });
+    const targetsSlice = targets.slice(f32).?;
+    @memcpy(targetsSlice, &[_]f32{ 0.0, 1.0, 0.0 }); // target class is index 1
+
+    try plan.forward();
+
+    const lossGrad = loss.grad.?.slice(f32).?;
+    lossGrad[0] = 1.0;
+    @memset(logits.grad.?.slice(f32).?, 0);
+
+    try plan.backward();
+
+    const probsSlice = probs.slice(f32).?;
+    const logitsGradSlice = logits.grad.?.slice(f32).?;
+    const N: f32 = @floatFromInt(probsSlice.len);
+
+    for (0..3) |i| {
+        const expected = (probsSlice[i] - targetsSlice[i]) / N;
+        try testing.expectApproxEqAbs(expected, logitsGradSlice[i], 1e-5);
+    }
 }
