@@ -119,8 +119,12 @@ pub fn Activation(comptime activ: ActivationFunc) type {
 
 /// Validates that a type follows the Layer API at comptime.
 /// A layer MUST have the following function signatures implemented:
-/// - `fn forward(*const Self, *LinearPlan, *const Tensor) !*const Tensor`
+/// - An init function or field returning a built layer.
+/// - A forward pass function: `fn forward(*const Self, *LinearPlan, *const Tensor) !*const Tensor`
 fn assertIsLayer(comptime L: type) void {
+    // check if the layer has an init function or init field
+    if (!@hasDecl(L, "init") and !@hasField(L, "init"))
+        @compileError(std.fmt.comptimePrint("Layer type {s} doesn't have an init function or init field.", .{@typeName(L)}));
 
     // check if the layer even has a forward() method
     if (!std.meta.hasMethod(L, "forward"))
