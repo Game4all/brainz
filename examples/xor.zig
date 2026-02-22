@@ -14,6 +14,7 @@ const Activation = brainz.nn.Activation;
 const Linear = brainz.nn.Linear;
 
 const LinearPlan = brainz.LinearPlan;
+const PlanBuilder = brainz.PlanBuilder;
 const ExecutionPlan = brainz.ExecutionPlan;
 
 /// A small MLP to learn the XOR truth table.
@@ -22,7 +23,7 @@ const XorMLP = struct {
     activ_1: Activation(.relu),
     layer_2: Linear(f32, true),
 
-    pub fn init(plan: *LinearPlan) !@This() {
+    pub fn init(plan: *PlanBuilder) !@This() {
         return .{
             .layer_1 = try .init(plan, 2, 4),
             .activ_1 = .init,
@@ -54,19 +55,21 @@ pub fn main() !void {
     var planBuilder: LinearPlan = .init(&tensorArena, allocator);
     errdefer planBuilder.deinit();
 
+    const builder = &planBuilder.builder;
+
     // initialize network
-    const xorMlp: XorNet = try .init(.{&planBuilder});
+    const xorMlp: XorNet = try .init(.{builder});
 
     // create inputs
-    const x = try planBuilder.createInput("x", .float32, x_shape, false);
-    const y_target = try planBuilder.createInput("y", .float32, y_shape, false);
+    const x = try builder.createInput("x", .float32, x_shape, false);
+    const y_target = try builder.createInput("y", .float32, y_shape, false);
 
     // do forward pass of the network
-    const y_pred = try xorMlp.forward(&planBuilder, x);
+    const y_pred = try xorMlp.forward(builder, x);
 
     // loss = mse(y_pred, y_target)
-    const loss = try ops.mseLoss(&planBuilder, y_pred, y_target);
-    try planBuilder.registerOutput("loss", loss);
+    const loss = try ops.mseLoss(builder, y_pred, y_target);
+    try builder.registerOutput("loss", loss);
 
     // finalize the plan and allocate storage
     var plan = try planBuilder.finalize(true);

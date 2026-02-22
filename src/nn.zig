@@ -8,6 +8,7 @@ const Tensor = tensor.Tensor;
 const TensorArena = tensor.TensorArena;
 const Shape = tensor.Shape;
 const LinearPlan = prog.LinearPlan;
+const PlanBuilder = prog.PlanBuilder;
 const Dtype = tensor.Dtype;
 
 /// A linear (=fully connected) layer for a neural network.
@@ -45,7 +46,7 @@ pub fn Linear(comptime ty: type, comptime bias: bool) type {
         ///
         /// # Returns
         /// A new Linear layer instance with uninitialized parameters.
-        pub fn init(plan: *LinearPlan, in_features: usize, out_features: usize) !Self {
+        pub fn init(plan: *PlanBuilder, in_features: usize, out_features: usize) !Self {
             const dtype = comptime Dtype.getBackingDType(ty);
 
             const weights = try plan.createParam(dtype, Shape.fromSlice(&.{ in_features, out_features }));
@@ -83,7 +84,7 @@ pub fn Linear(comptime ty: type, comptime bias: bool) type {
         ///
         /// # Returns
         /// Output tensor of shape `(batch_size, out_features)`
-        pub fn forward(self: *const Self, plan: *LinearPlan, input: *const Tensor) !*const Tensor {
+        pub fn forward(self: *const Self, plan: *PlanBuilder, input: *const Tensor) !*const Tensor {
             const xw = try ops.matmul(plan, input, self.weights);
             return if (self.biases) |b| try ops.add(plan, xw, b) else xw;
         }
@@ -107,7 +108,7 @@ pub fn Activation(comptime activ: ActivationFunc) type {
         /// Returns an initialized layer
         pub const init: Self = .{};
 
-        pub fn forward(self: *const @This(), plan: *LinearPlan, input: *const Tensor) !*const Tensor {
+        pub fn forward(self: *const @This(), plan: *PlanBuilder, input: *const Tensor) !*const Tensor {
             _ = self;
             return switch (activ) {
                 .relu => try ops.relu(plan, input),
@@ -120,7 +121,7 @@ pub fn Activation(comptime activ: ActivationFunc) type {
 /// Validates that a type follows the Layer API at comptime.
 /// A layer MUST have the following function signatures implemented:
 /// - An init function or field returning a built layer.
-/// - A forward pass function: `fn forward(*const Self, *LinearPlan, *const Tensor) !*const Tensor`
+/// - A forward pass function: `fn forward(*const Self, *PlanBuilder, *const Tensor) !*const Tensor`
 fn assertIsLayer(comptime L: type) void {
     // check if the layer has an init function or init field
     if (!@hasDecl(L, "init") and !@hasField(L, "init"))
@@ -134,13 +135,13 @@ fn assertIsLayer(comptime L: type) void {
     const fields = std.meta.fields(fnArgs);
 
     if (fields.len != 3)
-        @compileError(std.fmt.comptimePrint("Layer type {}'s `forward` method doesn't have the correct signature. Expected three arguments: (*const self, *LinearPlan, *const Tensor) ", .{@typeName(L)}));
+        @compileError(std.fmt.comptimePrint("Layer type {}'s `forward` method doesn't have the correct signature. Expected three arguments: (*const self, *PlanBuilder, *const Tensor) ", .{@typeName(L)}));
 
     const planTy = fields[fields.len - 2].type;
     const tensorTy = fields[fields.len - 1].type;
 
-    if (planTy != *LinearPlan or tensorTy != *const Tensor)
-        @compileError(std.fmt.comptimePrint("Layer type {}'s `forward` method doesn't have the correct signature. Expected three arguments: (*const self, *LinearPlan, *const Tensor) ", .{@typeName(L)}));
+    if (planTy != *PlanBuilder or tensorTy != *const Tensor)
+        @compileError(std.fmt.comptimePrint("Layer type {}'s `forward` method doesn't have the correct signature. Expected three arguments: (*const self, *PlanBuilder, *const Tensor) ", .{@typeName(L)}));
 }
 
 /// A comptime wrapper for neural nets that execute in a sequence
@@ -179,7 +180,7 @@ pub fn Sequential(comptime T: type) type {
         /// Performs a forward pass through all layers in the declared order.
         /// # Args
         /// - `input` is the tensor to be used for forward pass of this net.
-        pub fn forward(self: *const Self, plan: *LinearPlan, input: *const Tensor) !*const Tensor {
+        pub fn forward(self: *const Self, plan: *PlanBuilder, input: *const Tensor) !*const Tensor {
             var current_input = input;
 
             inline for (std.meta.fields(T)) |field| {
@@ -215,9 +216,11 @@ test "Linear layer: initialization and shape" {
     var planBuilder: LinearPlan = .init(&tensorArena, memArena.allocator());
     defer planBuilder.deinit();
 
+    const builder = &planBuilder.builder;
+
     // layer with 3 -> 5 features including bias
     const LinearLayer = nn.Linear(f32, true);
-    const layer = try LinearLayer.init(&planBuilder, 3, 5);
+    const layer = try LinearLayer.init(builder, 3, 5);
 
     // dims should be 3 input features, 5 out features
     try std.testing.expectEqual(3, layer.in_features);
@@ -244,6 +247,7 @@ test "Sequential: testing automatic forward pass" {
 
     var planBuilder: LinearPlan = .init(&tensorArena, memArena.allocator());
     defer planBuilder.deinit();
+    const builder = &planBuilder.builder;
 
     // declare a test architecture with two linear layers and a reLu inbetween.
     const TestNet = struct {
@@ -251,7 +255,7 @@ test "Sequential: testing automatic forward pass" {
         act: Activation(.relu),
         l2: Linear(f32, true),
 
-        pub fn init(plan: *LinearPlan) !@This() {
+        pub fn init(plan: *PlanBuilder) !@This() {
             return .{
                 .l1 = try Linear(f32, true).init(plan, 3, 4),
                 .act = .{},
@@ -261,12 +265,12 @@ test "Sequential: testing automatic forward pass" {
     };
 
     const Net = Sequential(TestNet);
-    const net = try Net.init(.{&planBuilder});
+    const net = try Net.init(.{builder});
 
     // create a dummy input tensor
-    const input = try planBuilder.createParam(.float32, Shape.fromSlice(&.{ 1, 3 }));
+    const input = try builder.createParam(.float32, Shape.fromSlice(&.{ 1, 3 }));
     // get the output to compare its shape to the expected dimension shapes
-    const output = try net.forward(&planBuilder, input);
+    const output = try net.forward(builder, input);
 
     // expected output dims is (1, 2)
     try std.testing.expectEqual(2, output.shape.n_dimensions);

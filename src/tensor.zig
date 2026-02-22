@@ -237,6 +237,7 @@ pub const Tensor = struct {
     }
 };
 
+//TODO: this should not be part of public API anymore.
 /// Tracks tensor lifetimes and manages view aliasing for a single graph, enabling efficient allocation and reuse of tensors' backing memory.
 pub const TensorArena = struct {
     allocator: Allocator,

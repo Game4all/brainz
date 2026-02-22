@@ -34,27 +34,29 @@ pub fn main() !void {
     const b_shape: Shape = comptime .fromSlice(&.{1});
 
     // define plan and linear regression model
-    var planBuilder: LinearPlan = .init(&tensorArena, allocator);
-    errdefer planBuilder.deinit();
+    var linearPlan: LinearPlan = .init(&tensorArena, allocator);
+    errdefer linearPlan.deinit();
+
+    const builder = &linearPlan.builder;
 
     // create X and target Y inputs
-    const x = try planBuilder.createInput("x", .float32, x_shape, false);
-    const y_target = try planBuilder.createInput("y", .float32, y_shape, false);
+    const x = try builder.createInput("x", .float32, x_shape, false);
+    const y_target = try builder.createInput("y", .float32, y_shape, false);
 
     // create tensors for model parameters (trainable)
-    const w = try planBuilder.createParam(.float32, w_shape);
-    const b = try planBuilder.createParam(.float32, b_shape);
+    const w = try builder.createParam(.float32, w_shape);
+    const b = try builder.createParam(.float32, b_shape);
 
     // y_pred = x * w + b
-    const xw = try ops.mul(&planBuilder, x, w);
-    const y_pred = try ops.add(&planBuilder, xw, b);
+    const xw = try ops.mul(builder, x, w);
+    const y_pred = try ops.add(builder, xw, b);
 
     // loss = mse(y_pred, y_target)
-    const loss = try ops.mseLoss(&planBuilder, y_pred, y_target);
-    try planBuilder.registerOutput("loss", loss);
+    const loss = try ops.mseLoss(builder, y_pred, y_target);
+    try builder.registerOutput("loss", loss);
 
     // finalize plan and allocate backing memory for tensors
-    var plan: ExecutionPlan = try planBuilder.finalize(true);
+    var plan: ExecutionPlan = try linearPlan.finalize(true);
     defer plan.deinit();
 
     try tensorArena.allocateStorage();
