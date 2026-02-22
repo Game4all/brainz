@@ -51,8 +51,6 @@ pub const ExecutionPlan = struct {
     prog_inputs: std.StringArrayHashMapUnmanaged(*const Tensor),
     /// outputs of the plan
     prog_outputs: std.StringArrayHashMapUnmanaged(*const Tensor),
-    /// parameters of the plan
-    prog_params: []*const Tensor,
     // internal flags for tracking plan compilation state
     flags: Flags,
 
@@ -72,11 +70,6 @@ pub const ExecutionPlan = struct {
             return ten;
 
         return null;
-    }
-
-    /// Returns all the parameters of this plan.
-    pub inline fn getParams(self: *const @This()) []*const Tensor {
-        return self.prog_params;
     }
 
     // ======================================================= ExecutionPlan finalization and passes ============================================
@@ -129,7 +122,6 @@ pub const ExecutionPlan = struct {
     /// Frees the memory backing the plan
     pub fn deinit(self: *@This()) void {
         self.allocator.free(self.ops);
-        self.allocator.free(self.prog_params);
         self.prog_outputs.deinit(self.allocator);
         self.prog_inputs.deinit(self.allocator);
     }
@@ -143,7 +135,6 @@ pub const PlanBuilder = struct {
     registerInputFn: *const fn (*@This(), []const u8, *const Tensor) anyerror!void,
     createOutputFn: *const fn (*@This(), []const u8, Dtype, Shape, bool) anyerror!*const Tensor,
     registerOutputFn: *const fn (*@This(), []const u8, *const Tensor) anyerror!void,
-    createParamFn: *const fn (*@This(), Dtype, Shape) anyerror!*const Tensor,
     createTensorFn: *const fn (*@This(), Dtype, Shape, bool) anyerror!*const Tensor,
 
     /// Creates a tensor as an input and registers it with the plan
@@ -164,11 +155,6 @@ pub const PlanBuilder = struct {
     /// Registers a tensor as an output.
     pub inline fn registerOutput(self: *@This(), name: []const u8, output: *const Tensor) !void {
         return try self.registerOutputFn(self, name, output);
-    }
-
-    /// Creates a tensor and registers it as an optimizable parameter in the current plan.
-    pub inline fn createParam(self: *@This(), dtype: Dtype, shape: Shape) !*const Tensor {
-        return try self.createParamFn(self, dtype, shape);
     }
 
     /// Creates a tensor and returns a reference to it.
@@ -195,8 +181,6 @@ pub const LinearPlan = struct {
     prog_inputs: std.StringArrayHashMapUnmanaged(*const Tensor),
     /// outputs of the plan
     prog_outputs: std.StringArrayHashMapUnmanaged(*const Tensor),
-    /// parameters of the plan
-    prog_params: std.ArrayList(*const Tensor),
     // internal flag to track whether the plan was consumed or not (useful for determining if data is still owned by the plan or not)
     finalized: bool,
     // Intrusive interface for plan builder
@@ -209,7 +193,6 @@ pub const LinearPlan = struct {
             .arena = arena,
             .prog_inputs = .empty,
             .prog_outputs = .empty,
-            .prog_params = .empty,
             .ops = .empty,
             .finalized = false,
             .builder = .{
@@ -218,7 +201,6 @@ pub const LinearPlan = struct {
                 .registerInputFn = LinearPlan.registerInput,
                 .createOutputFn = LinearPlan.createOutput,
                 .registerOutputFn = LinearPlan.registerOutput,
-                .createParamFn = LinearPlan.createParam,
                 .createTensorFn = LinearPlan.createTensor,
             },
         };
@@ -291,12 +273,12 @@ pub const LinearPlan = struct {
     }
 
     /// Creates a tensor and registers it as an optimizable parameter for the plan.
-    fn createParam(i: *PlanBuilder, dtype: Dtype, shape: Shape) anyerror!*const Tensor {
-        const self: *@This() = @fieldParentPtr("builder", i);
-        const t = try self.arena.makeTensor(dtype, shape, true); // we consider parameters are optimizable by default
-        try self.prog_params.append(self.allocator, t);
-        return t;
-    }
+    // fn createParam(i: *PlanBuilder, dtype: Dtype, shape: Shape) anyerror!*const Tensor {
+    //     const self: *@This() = @fieldParentPtr("builder", i);
+    //     const t = try self.arena.makeTensor(dtype, shape, true); // we consider parameters are optimizable by default
+    //     try self.prog_params.append(self.allocator, t);
+    //     return t;
+    // }
 
     /// Creates a tensor and returns a reference to it.
     fn createTensor(i: *PlanBuilder, dtype: Dtype, shape: Shape, requires_grad: bool) anyerror!*const Tensor {
@@ -333,9 +315,6 @@ pub const LinearPlan = struct {
         const ownedNodes = try self.ops.toOwnedSlice(self.allocator);
         errdefer self.allocator.free(ownedNodes);
 
-        const ownedParams = try self.prog_params.toOwnedSlice(self.allocator);
-        errdefer self.allocator.free(ownedParams);
-
         const ownedInputs = self.prog_inputs;
         const ownedOutputs = self.prog_outputs;
 
@@ -346,7 +325,6 @@ pub const LinearPlan = struct {
             .flags = .{ .allow_backprop = backprop },
             .prog_inputs = ownedInputs,
             .prog_outputs = ownedOutputs,
-            .prog_params = ownedParams,
         };
 
         self.* = undefined;
@@ -361,7 +339,6 @@ pub const LinearPlan = struct {
             self.ops.deinit(self.allocator);
             self.prog_inputs.deinit(self.allocator);
             self.prog_outputs.deinit(self.allocator);
-            self.prog_params.deinit(self.allocator);
         }
     }
 };

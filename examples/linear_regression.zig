@@ -44,8 +44,8 @@ pub fn main() !void {
     const y_target = try builder.createInput("y", .float32, y_shape, false);
 
     // create tensors for model parameters (trainable)
-    const w = try builder.createParam(.float32, w_shape);
-    const b = try builder.createParam(.float32, b_shape);
+    const w = try builder.createTensor(.float32, w_shape, true);
+    const b = try builder.createTensor(.float32, b_shape, true);
 
     // y_pred = x * w + b
     const xw = try ops.mul(builder, x, w);
@@ -93,7 +93,7 @@ pub fn main() !void {
 
     std.log.info("Initial weights: w={d:.4}, b={d:.4}, MSE={d:.4}", .{ w_data[0], b_data[0], initialLoss });
 
-    var sgd = optim.SGD.init(plan.getParams(), lr);
+    var sgd = optim.SGD.init(&[_]*const Tensor{ w, b }, lr);
     const loss_grad = loss.grad.?.slice(f32).?;
 
     for (0..epochs) |epoch| {

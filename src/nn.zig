@@ -49,8 +49,8 @@ pub fn Linear(comptime ty: type, comptime bias: bool) type {
         pub fn init(plan: *PlanBuilder, in_features: usize, out_features: usize) !Self {
             const dtype = comptime Dtype.getBackingDType(ty);
 
-            const weights = try plan.createParam(dtype, Shape.fromSlice(&.{ in_features, out_features }));
-            const biases = if (bias) try plan.createParam(dtype, Shape.fromSlice(&.{out_features})) else null;
+            const weights = try plan.createTensor(dtype, Shape.fromSlice(&.{ in_features, out_features }), true);
+            const biases = if (bias) try plan.createTensor(dtype, Shape.fromSlice(&.{out_features}), true) else null;
 
             return .{
                 .weights = weights,
@@ -299,18 +299,17 @@ test "Sequential: testing automatic forward pass" {
 
         pub fn init(plan: *PlanBuilder) !@This() {
             return .{
-                .l1 = try Linear(f32, true).init(plan, 3, 4),
+                .l1 = try .init(plan, 3, 4),
                 .act = .init,
-                .l2 = try Linear(f32, true).init(plan, 4, 2),
+                .l2 = try .init(plan, 4, 2),
             };
         }
     };
 
-    const Net = Sequential(TestNet);
-    const net = try Net.init(.{builder});
+    const net: Sequential(TestNet) = try .init(.{builder});
 
     // create a dummy input tensor
-    const input = try builder.createParam(.float32, Shape.fromSlice(&.{ 1, 3 }));
+    const input = try builder.createTensor(.float32, Shape.fromSlice(&.{ 1, 3 }), true);
     // get the output to compare its shape to the expected dimension shapes
     const output = try net.forward(builder, input);
 
