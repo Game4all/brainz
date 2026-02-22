@@ -88,6 +88,12 @@ pub fn Linear(comptime ty: type, comptime bias: bool) type {
             const xw = try ops.matmul(plan, input, self.weights);
             return if (self.biases) |b| try ops.add(plan, xw, b) else xw;
         }
+
+        /// Returns the trainable parameters of this layer
+        pub fn parameters(self: *const Self) []const *const Tensor {
+            if (self.biases) |b| return &.{ self.weights, b };
+            return &.{self.weights};
+        }
     };
 }
 
@@ -115,37 +121,47 @@ pub fn Activation(comptime activ: ActivationFunc) type {
                 .sigmoid => try ops.sigmoid(plan, input),
             };
         }
+
+        /// Returns the trainable parameters of this layer (which there is none of since it's an activation function without any trainable parameters)
+        pub fn parameters(_: *const Self) []const *const Tensor {
+            return &.{};
+        }
     };
+}
+
+fn checkHasMethod(comptime L: type, comptime name: [:0]const u8, comptime expectedArgs: []const type) void {
+    if (!std.meta.hasMethod(L, name))
+        @compileError(std.fmt.comptimePrint("Layer type {s} doesn't have a '{s}' method which is part of the Layer API.", .{ @typeName(L), name }));
+
+    const fnArgs = std.meta.ArgsTuple(@TypeOf(@field(L, name)));
+    const argsList = std.meta.fields(fnArgs);
+    if (expectedArgs.len != argsList.len)
+        @compileError(std.fmt.comptimePrint("Layer type {s} has a mismatched argument count on '{s}' method (expected {d} args, got {d})", .{ @typeName(L), name, expectedArgs.len, argsList.len }));
+
+    inline for (argsList, 0..) |fld, i| {
+        if (expectedArgs[i] != fld.type)
+            @compileError(std.fmt.comptimePrint("Layer type {s} has a mismatched argument on '{s}' method (expected arg #{d} to be of type {s}, got {s} instead)", .{ @typeName(L), name, i, @typeName(expectedArgs[i]), @typeName(fld.type) }));
+    }
 }
 
 /// Validates that a type follows the Layer API at comptime.
 /// A layer MUST have the following function signatures implemented:
 /// - An init function or field returning a built layer.
-/// - A forward pass function: `fn forward(*const Self, *PlanBuilder, *const Tensor) !*const Tensor`
+/// - A forward pass method: `fn forward(*const Self, *PlanBuilder, *const Tensor) !*const Tensor`
+/// - A `parameters` method which returns trainable parameters in the layer: `fn parameters(*const Self) []const *const Tensor`
 fn assertIsLayer(comptime L: type) void {
     // check if the layer has an init function or init field
     if (!@hasDecl(L, "init") and !@hasField(L, "init"))
         @compileError(std.fmt.comptimePrint("Layer type {s} doesn't have an init function or init field.", .{@typeName(L)}));
 
-    // check if the layer even has a forward() method
-    if (!std.meta.hasMethod(L, "forward"))
-        @compileError(std.fmt.comptimePrint("Layer type {s} doesn't have a forward method.", .{@typeName(L)}));
-
-    const fnArgs = std.meta.ArgsTuple(@TypeOf(L.forward));
-    const fields = std.meta.fields(fnArgs);
-
-    if (fields.len != 3)
-        @compileError(std.fmt.comptimePrint("Layer type {}'s `forward` method doesn't have the correct signature. Expected three arguments: (*const self, *PlanBuilder, *const Tensor) ", .{@typeName(L)}));
-
-    const planTy = fields[fields.len - 2].type;
-    const tensorTy = fields[fields.len - 1].type;
-
-    if (planTy != *PlanBuilder or tensorTy != *const Tensor)
-        @compileError(std.fmt.comptimePrint("Layer type {}'s `forward` method doesn't have the correct signature. Expected three arguments: (*const self, *PlanBuilder, *const Tensor) ", .{@typeName(L)}));
+    // check if the layer has a forward function
+    checkHasMethod(L, "forward", &.{ *const L, *PlanBuilder, *const Tensor });
+    // check if the layer has a parameters function
+    checkHasMethod(L, "parameters", &.{*const L});
 }
 
 /// A comptime wrapper for neural nets that execute in a sequence
-/// This provides automatically helpers for the forward pass based on a struct that describes the net architecture.
+/// This provides automatically helpers for the forward pass based on a struct that describes the network architecture.
 /// # Note
 /// The architecture struct must implement an init function to initialize the network layers.
 pub fn Sequential(comptime T: type) type {
@@ -170,7 +186,7 @@ pub fn Sequential(comptime T: type) type {
 
         /// Initializes the network layers.
         /// # Args
-        /// - `args`: a tuple/struct passed to the inner struct's init function.
+        /// - `args`: a tuple/struct passed to the inner architecture struct's init function.
         pub fn init(args: anytype) !Self {
             return .{
                 .layers = try @call(.auto, T.init, args),
@@ -202,6 +218,28 @@ pub fn Sequential(comptime T: type) type {
         /// Returns the underlying architecture struct for manual access to the layers.
         pub fn getInner(self: *const Self) *const T {
             return &self.layers;
+        }
+
+        /// Returns the total number of trainable parameters in the network.
+        pub fn getParameterCount(self: *const Self) usize {
+            var paramCount: usize = 0;
+            inline for (std.meta.fields(T)) |fld| {
+                const params = @call(.auto, @field(fld.type, "parameters"), .{&@field(self.layers, fld.name)});
+                paramCount += params.len;
+            }
+            return paramCount;
+        }
+
+        /// Returns an allocated slice of all trainable parameters in the network.
+        pub fn collectParameters(self: *const Self, allocator: std.mem.Allocator) ![]const *const Tensor {
+            const slice = try allocator.alloc(*const Tensor, self.getParameterCount());
+            var i: usize = 0;
+            inline for (std.meta.fields(T)) |fld| {
+                const params: []const *const Tensor = @field(self.layers, fld.name).parameters();
+                @memcpy(slice[i..(i + params.len)], params);
+                i += params.len;
+            }
+            return slice;
         }
     };
 }
@@ -236,6 +274,10 @@ test "Linear layer: initialization and shape" {
         try std.testing.expectEqual(1, b.shape.n_dimensions);
         try std.testing.expectEqualSlices(usize, &[_]usize{5}, b.shape.dimensions[0..b.shape.n_dimensions]);
     }
+
+    // check total parameter count
+    const totalParams = layer.parameters();
+    try std.testing.expectEqual(2, totalParams.len);
 }
 
 test "Sequential: testing automatic forward pass" {
@@ -258,7 +300,7 @@ test "Sequential: testing automatic forward pass" {
         pub fn init(plan: *PlanBuilder) !@This() {
             return .{
                 .l1 = try Linear(f32, true).init(plan, 3, 4),
-                .act = .{},
+                .act = .init,
                 .l2 = try Linear(f32, true).init(plan, 4, 2),
             };
         }
@@ -275,4 +317,8 @@ test "Sequential: testing automatic forward pass" {
     // expected output dims is (1, 2)
     try std.testing.expectEqual(2, output.shape.n_dimensions);
     try std.testing.expectEqualSlices(usize, &[_]usize{ 1, 2 }, output.shape.dimensions[0..output.shape.n_dimensions]);
+
+    // check total parameter count (should be 4, since we have 2 layers with weights and biases tensors)
+    const totalParams = net.getParameterCount();
+    try std.testing.expectEqual(4, totalParams);
 }

@@ -18,7 +18,7 @@ const PlanBuilder = brainz.PlanBuilder;
 const ExecutionPlan = brainz.ExecutionPlan;
 
 /// A small MLP to learn the XOR truth table.
-const XorMLP = struct {
+const XorNet = brainz.nn.Sequential(struct {
     layer_1: Linear(f32, true),
     activ_1: Activation(.relu),
     layer_2: Linear(f32, true),
@@ -30,9 +30,7 @@ const XorMLP = struct {
             .layer_2 = try .init(plan, 4, 1),
         };
     }
-};
-
-const XorNet = brainz.nn.Sequential(XorMLP);
+});
 
 pub fn main() !void {
     var gpa = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -90,8 +88,12 @@ pub fn main() !void {
 
     xorMlp.initializeWeights(random);
 
+    // retrieve the list of trainable tensors
+    const trainableParams = try xorMlp.collectParameters(allocator);
+    defer allocator.free(trainableParams);
+
     // initialize the optimizer
-    var sgd = optim.SGD.init(plan.getParams(), lr);
+    var sgd = optim.SGD.init(trainableParams, lr);
     const loss_grad = loss.grad.?.slice(f32).?;
 
     std.log.info("=================================== Training =================================== ", .{});
