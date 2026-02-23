@@ -226,13 +226,12 @@ pub const Tensor = struct {
         return sl[0];
     }
 
-    //todo: this may have to live on the Device interface at some point
-    /// Resets the tensor storage to zero if it exists.
+    /// Zeroes out the values of the underlying storage of this tensor.
     pub fn zero(self: *const Tensor) void {
-        switch (self.dtype) {
-            .float32 => if (self.slice(f32)) |s| @memset(s, 0),
-            .float64 => if (self.slice(f64)) |s| @memset(s, 0),
-            .usize64 => if (self.slice(u64)) |s| @memset(s, 0),
+        if (self.storage) |ptr| {
+            const dataLen = self.shape.totalLength() * self.dtype.getBackingSize();
+            const charPtr: [*]u8 = @ptrCast(@alignCast(ptr));
+            @memset(charPtr[0..dataLen], 0);
         }
     }
 };
@@ -253,10 +252,10 @@ pub const TensorArena = struct {
             if (tensor.isView()) continue;
 
             if (tensor.storage) |storage| {
-                //FIXME: fix storage freeing
-                const byte_size: usize = tensor.shape.totalLength() * tensor.dtype.getBackingSize();
-                const typed_storage = @as([*]u8, @ptrCast(storage));
-                self.allocator.free(typed_storage[0..byte_size]);
+                const byteLen: usize = tensor.shape.totalLength() * tensor.dtype.getBackingSize();
+                const typedStorage: [*]u8 = @ptrCast(@alignCast(storage));
+                self.allocator.free(typedStorage[0..byteLen]);
+                self.allocator.destroy(tensor);
             }
         }
         self.tensors.deinit(self.allocator);
