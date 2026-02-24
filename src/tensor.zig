@@ -169,7 +169,7 @@ pub const Dtype = enum {
 
     /// Returns the Dtype backing the passed in zig type.
     pub fn getBackingDType(comptime ty: type) Dtype {
-        comptime switch (@typeInfo(ty)) {
+        return switch (@typeInfo(ty)) {
             .int => |i| return if (i.signedness == .unsigned and i.bits == 64) .usize64 else @compileError("No supported type"),
             .float => |f| return if (f.bits == 64) .float64 else .float32,
             else => @compileError("Unsupported backing type"),
@@ -210,10 +210,13 @@ pub const Tensor = struct {
         return null;
     }
 
-    //todo: enforce type safety
     /// Returns the tensor storage as a slice of the specified type.
     pub fn slice(self: *const Tensor, comptime T: type) ?[]T {
+        const tgtDtype = comptime Dtype.getBackingDType(T);
+        if (tgtDtype != self.dtype) return null;
+
         const storage = self.getRawStorage() orelse return null;
+
         const ptr: [*]T = @ptrCast(@alignCast(storage));
         const sl = ptr[0..self.shape.totalLength()];
         return sl;
@@ -221,6 +224,9 @@ pub const Tensor = struct {
 
     /// Returns the tensor storage as a scalar of the specified type.
     pub fn scalar(self: *const Tensor, comptime T: type) ?T {
+        const tgtDtype = comptime Dtype.getBackingDType(T);
+        if (tgtDtype != self.dtype) return null;
+
         if (self.shape.totalLength() != 1) return null;
         const sl = self.slice(T) orelse return null;
         return sl[0];
