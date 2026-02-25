@@ -145,7 +145,7 @@ pub const Shape = struct {
 };
 
 /// Possible data types of a tensor
-pub const Dtype = enum {
+pub const Dtype = enum(u8) {
     float32,
     float64,
     usize64,
@@ -204,8 +204,8 @@ pub const Tensor = struct {
         return self.storage != null;
     }
 
-    fn getRawStorage(self: *const Tensor) ?*anyopaque {
-        if (self.storage) |s| return s;
+    fn getRawStorage(self: *const Tensor) ?[*]u8 {
+        if (self.storage) |s| return @ptrCast(@alignCast(s));
         if (self.parent_view) |p| return p.getRawStorage();
         return null;
     }
@@ -216,17 +216,13 @@ pub const Tensor = struct {
         if (tgtDtype != self.dtype) return null;
 
         const storage = self.getRawStorage() orelse return null;
-
-        const ptr: [*]T = @ptrCast(@alignCast(storage));
-        const sl = ptr[0..self.shape.totalLength()];
+        const typedStorage: [*]T = @ptrCast(@alignCast(storage));
+        const sl = typedStorage[0..self.shape.totalLength()];
         return sl;
     }
 
     /// Returns the tensor storage as a scalar of the specified type.
     pub fn scalar(self: *const Tensor, comptime T: type) ?T {
-        const tgtDtype = comptime Dtype.getBackingDType(T);
-        if (tgtDtype != self.dtype) return null;
-
         if (self.shape.totalLength() != 1) return null;
         const sl = self.slice(T) orelse return null;
         return sl[0];
@@ -234,11 +230,43 @@ pub const Tensor = struct {
 
     /// Zeroes out the values of the underlying storage of this tensor.
     pub fn zero(self: *const Tensor) void {
-        if (self.storage) |ptr| {
-            const dataLen = self.shape.totalLength() * self.dtype.getBackingSize();
-            const charPtr: [*]u8 = @ptrCast(@alignCast(ptr));
-            @memset(charPtr[0..dataLen], 0);
-        }
+        const storage = self.getRawStorage() orelse return;
+        const dataLen = self.shape.totalLength() * self.dtype.getBackingSize();
+        @memset(storage[0..dataLen], 0);
+    }
+
+    /// Serializes the tensor contents.
+    pub fn writeContents(self: *const Tensor, writer: *std.Io.Writer) !void {
+        const storage = self.getRawStorage() orelse return error.NoStorage;
+
+        // write dtype first
+        try writer.writeByte(@intFromEnum(self.dtype));
+        const byte_len = self.shape.totalLength() * self.dtype.getBackingSize();
+
+        // write total content size in bytes
+        try writer.writeInt(usize, byte_len, .little);
+
+        try writer.writeAll(storage[0..byte_len]);
+    }
+
+    /// Deserializes the tensor contents from the reader.
+    pub fn readContents(self: *const Tensor, reader: *std.Io.Reader) !void {
+        const storage = self.getRawStorage() orelse return error.NoStorage;
+
+        // decode dtype first
+        const dtype_val = try reader.peekByte();
+        reader.toss(1);
+
+        if (dtype_val != @intFromEnum(self.dtype)) return error.IncompatibleDtype; //throw if dtype isn't the same
+
+        // verify shape matches
+        const byte_len = try reader.peekInt(usize, .little);
+        reader.toss(@sizeOf(usize));
+
+        const expected_byte_len = self.shape.totalLength() * self.dtype.getBackingSize();
+        if (byte_len != expected_byte_len) return error.IncompatibleLength;
+
+        try reader.readSliceAll(storage[0..byte_len]);
     }
 };
 
@@ -442,4 +470,35 @@ test "TensorArena test" {
 
     try std.testing.expect(tensorArena.tensors.items[0].storage != null);
     try std.testing.expect(tensorArena.tensors.items[1].storage == null);
+}
+
+test "Tensor serialization" {
+    var memArena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer memArena.deinit();
+
+    var tensorArena: TensorArena = .init(memArena.allocator());
+    defer tensorArena.deinit();
+
+    const shape = Shape.fromSlice(&.{ 2, 3 });
+    const tensor = try tensorArena.makeTensor(.float32, shape, false);
+    try tensorArena.allocateStorage();
+
+    const data = tensor.slice(f32).?;
+    for (data, 0..) |*val, i|
+        val.* = @as(f32, @floatFromInt(i));
+
+    var buffer: [1024]u8 = undefined;
+    var fixedWriter = std.Io.Writer.fixed(&buffer);
+    var reader = std.Io.Reader.fixed(&buffer);
+
+    // write contents to stream
+    try tensor.writeContents(&fixedWriter);
+
+    // zero out tensor's data
+    tensor.zero();
+
+    // read data again
+    try tensor.readContents(&reader);
+
+    try std.testing.expectEqualSlices(f32, &[_]f32{ 0.0, 1.0, 2.0, 3.0, 4.0, 5.0 }, data);
 }
