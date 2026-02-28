@@ -229,11 +229,9 @@ test "op: add forward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{2});
@@ -245,8 +243,6 @@ test "op: add forward" {
 
     var plan = try linearPlan.finalize(false);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32) orelse return error.NullSlice;
     @memcpy(aSlice, &[_]f32{ 2.0, 3.0 });
@@ -264,11 +260,9 @@ test "op: add backward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
+    var linearPlan: LinearPlan = .init(memArena.allocator());
+    defer linearPlan.deinit();
 
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
-    errdefer linearPlan.deinit();
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{2});
@@ -280,8 +274,6 @@ test "op: add backward" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32) orelse return error.NullSlice;
     const bSlice = b.slice(f32) orelse return error.NullSlice;
@@ -307,11 +299,9 @@ test "op: sub forward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
+    var linearPlan: LinearPlan = .init(memArena.allocator());
+    defer linearPlan.deinit();
 
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
-    errdefer linearPlan.deinit();
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{2});
@@ -323,8 +313,6 @@ test "op: sub forward" {
 
     var plan = try linearPlan.finalize(false);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     @memcpy(aSlice, &[_]f32{ 5.0, 7.0 });
@@ -342,11 +330,9 @@ test "op: sub backward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{2});
@@ -358,7 +344,6 @@ test "op: sub backward" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     @memcpy(aSlice, &[_]f32{ 5.0, 7.0 });
@@ -387,11 +372,9 @@ test "op: mul forward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{2});
@@ -403,8 +386,6 @@ test "op: mul forward" {
 
     var plan = try linearPlan.finalize(false);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     const bSlice = b.slice(f32).?;
@@ -424,11 +405,9 @@ test "op: mul backward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{2});
@@ -440,8 +419,6 @@ test "op: mul backward" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     const bSlice = b.slice(f32).?;
@@ -470,11 +447,9 @@ test "op: div forward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{2});
@@ -486,8 +461,6 @@ test "op: div forward" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     const bSlice = b.slice(f32).?;
@@ -507,11 +480,9 @@ test "op: div backward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{2});
@@ -523,8 +494,6 @@ test "op: div backward" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     const bSlice = b.slice(f32).?;
@@ -555,11 +524,9 @@ test "op: matmul forward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shapeA: Shape = comptime .fromSlice(&.{ 2, 3 });
@@ -576,8 +543,6 @@ test "op: matmul forward" {
 
     var plan = try linearPlan.finalize(false);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     // [[1, 2, 3],
     //  [4, 5, 6]]
@@ -606,11 +571,9 @@ test "op: matmul backward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shapeA: Shape = comptime .fromSlice(&.{ 1, 2 });
@@ -625,8 +588,6 @@ test "op: matmul backward" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     @memcpy(aSlice, &[_]f32{ 1.0, 2.0 });
@@ -664,11 +625,9 @@ test "op: mse forward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape: Shape = comptime .fromSlice(&.{2});
@@ -680,8 +639,6 @@ test "op: mse forward" {
 
     var plan = try linearPlan.finalize(false);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     @memcpy(aSlice, &[_]f32{ 1.0, 2.0 });
@@ -704,11 +661,9 @@ test "op: mse backward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape: Shape = comptime .fromSlice(&.{2});
@@ -720,8 +675,6 @@ test "op: mse backward" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     const bSlice = b.slice(f32).?;
@@ -758,11 +711,9 @@ test "op: add broadcasting forward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     // broadcast [2] -> [2, 2]
@@ -781,8 +732,6 @@ test "op: add broadcasting forward" {
     var plan = try linearPlan.finalize(false);
     defer plan.deinit();
 
-    try tensorArena.allocateStorage();
-
     const aSlice = a.slice(f32).?;
     @memcpy(aSlice, &[_]f32{ 1.0, 2.0 });
 
@@ -799,11 +748,9 @@ test "op: add broadcasting backward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     // broadcast a: [1] -> b: [2]
@@ -824,8 +771,6 @@ test "op: add broadcasting backward" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     a.slice(f32).?[0] = 10.0;
     @memcpy(b.slice(f32).?, &[_]f32{ 1.0, 2.0 });
@@ -848,11 +793,9 @@ test "op: batched matmul forward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     // a: (2, 2, 2), b: (2, 2) -> out: (2, 2, 2)
@@ -866,8 +809,6 @@ test "op: batched matmul forward" {
 
     var plan = try linearPlan.finalize(false);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     // a[0] = [[1, 2], [3, 4]]
     const aSlice = a.slice(f32).?;
@@ -889,11 +830,9 @@ test "op: cross_entropy forward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape: Shape = comptime .fromSlice(&.{3});
@@ -906,8 +845,6 @@ test "op: cross_entropy forward" {
 
     var plan = try linearPlan.finalize(false);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const predSlice = pred.slice(f32).?;
     @memcpy(predSlice, &[_]f32{ 0.1, 0.7, 0.2 });
@@ -928,11 +865,9 @@ test "op: batched matmul backward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     // a: (2, 1, 2), b: (2, 1) -> out: (2, 1, 1)
@@ -946,8 +881,6 @@ test "op: batched matmul backward" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     // a[0] = [[1, 2]], a[1] = [[3, 4]]
     @memcpy(a.slice(f32).?, &[_]f32{ 1, 2, 3, 4 });
@@ -985,11 +918,9 @@ test "op: relu forward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{4});
@@ -1000,8 +931,6 @@ test "op: relu forward" {
 
     var plan = try linearPlan.finalize(false);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     @memcpy(aSlice, &[_]f32{ -1.0, 0.0, 1.0, 2.0 });
@@ -1016,11 +945,9 @@ test "op: relu backward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{4});
@@ -1031,8 +958,6 @@ test "op: relu backward" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     @memcpy(a.slice(f32).?, &[_]f32{ -1.0, 0.0, 1.0, 2.0 });
 
@@ -1050,11 +975,9 @@ test "op: sigmoid forward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{3});
@@ -1065,8 +988,6 @@ test "op: sigmoid forward" {
 
     var plan = try linearPlan.finalize(false);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
 
@@ -1087,11 +1008,9 @@ test "op: sigmoid backward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{1});
@@ -1102,8 +1021,6 @@ test "op: sigmoid backward" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     // sigmoid(0) = 0.5
     a.slice(f32).?[0] = 0.0;
@@ -1123,11 +1040,9 @@ test "op: argmax forward axis (2 dimensions)" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = comptime Shape.fromSlice(&.{ 2, 3 });
@@ -1139,8 +1054,6 @@ test "op: argmax forward axis (2 dimensions)" {
 
     var plan = try linearPlan.finalize(false);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     // [[1, 5, 2],
@@ -1158,11 +1071,9 @@ test "op: softmax forward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = Shape.fromSlice(&.{ 2, 3 });
@@ -1173,8 +1084,6 @@ test "op: softmax forward" {
 
     var plan = try linearPlan.finalize(false);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     @memcpy(aSlice, &[_]f32{ 1.0, 2.0, 3.0, 0.0, 0.0, 0.0 });
@@ -1200,11 +1109,9 @@ test "op: softmax backward" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = Shape.fromSlice(&.{ 1, 2 });
@@ -1215,8 +1122,6 @@ test "op: softmax backward" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const aSlice = a.slice(f32).?;
     @memcpy(aSlice, &[_]f32{ 0.0, 0.0 });
@@ -1245,11 +1150,9 @@ test "op: softmax + cross_entropy compatibility" {
     var memArena = std.heap.ArenaAllocator.init(testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var linearPlan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
+
     const builder = &linearPlan.builder;
 
     const shape = Shape.fromSlice(&.{ 1, 3 });
@@ -1262,8 +1165,6 @@ test "op: softmax + cross_entropy compatibility" {
 
     var plan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     const logitsSlice = logits.slice(f32).?;
     @memcpy(logitsSlice, &[_]f32{ 1.0, 2.0, 3.0 });

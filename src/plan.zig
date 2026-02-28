@@ -42,7 +42,7 @@ pub const ExecutionPlan = struct {
 
     /// The arena managing the tensors of this graph.
     /// This arena may be used to create intermediate tensors for the operation results.
-    arena: *TensorArena,
+    arena: TensorArena,
     /// allocator for storing plan metadata and operations
     allocator: std.mem.Allocator,
     /// list of operations
@@ -172,7 +172,7 @@ pub const PlanBuilder = struct {
 pub const LinearPlan = struct {
     /// The arena managing the tensors of this graph.
     /// This arena may be used to create intermediate tensors for the operation results.
-    arena: *TensorArena,
+    arena: TensorArena,
     /// allocator for storing plan metadata and operations
     allocator: std.mem.Allocator,
     /// list of operations
@@ -187,10 +187,10 @@ pub const LinearPlan = struct {
     builder: PlanBuilder,
 
     /// Initializes an empty plan
-    pub fn init(arena: *TensorArena, alloc: Allocator) @This() {
+    pub fn init(alloc: Allocator) @This() {
         return .{
+            .arena = TensorArena.init(alloc),
             .allocator = alloc,
-            .arena = arena,
             .prog_inputs = .empty,
             .prog_outputs = .empty,
             .ops = .empty,
@@ -311,6 +311,9 @@ pub const LinearPlan = struct {
             }
         }
 
+        // allocate storage now that all tensors are known
+        try self.arena.allocateStorage();
+
         // make all the plan info immutable by making owned slices.
         const ownedNodes = try self.ops.toOwnedSlice(self.allocator);
         errdefer self.allocator.free(ownedNodes);
@@ -339,6 +342,7 @@ pub const LinearPlan = struct {
             self.ops.deinit(self.allocator);
             self.prog_inputs.deinit(self.allocator);
             self.prog_outputs.deinit(self.allocator);
+            self.arena.deinit();
         }
     }
 };
@@ -347,13 +351,10 @@ test "creating an empty plan" {
     var memArena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer memArena.deinit();
 
-    // create tensor arena
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
     // create a linear plan
-    var plan: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var plan: LinearPlan = .init(memArena.allocator());
     errdefer plan.deinit();
+
     // get the plan builder
     var builder = &plan.builder;
 

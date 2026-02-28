@@ -38,10 +38,6 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    // create the tensor arena
-    var tensorArena: TensorArena = .init(allocator);
-    defer tensorArena.deinit();
-
     const lr: f32 = 0.1;
     const epochs: usize = 1000;
 
@@ -50,7 +46,7 @@ pub fn main() !void {
     const y_shape: Shape = comptime .fromSlice(&.{ 4, 1 });
 
     // create a linear execution plan
-    var planBuilder: LinearPlan = .init(&tensorArena, allocator);
+    var planBuilder: LinearPlan = .init(allocator);
     errdefer planBuilder.deinit();
 
     const builder = &planBuilder.builder;
@@ -72,8 +68,6 @@ pub fn main() !void {
     // finalize the plan and allocate storage
     var plan = try planBuilder.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     // Initialize data
     const x_data = x.slice(f32).?;

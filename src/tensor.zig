@@ -322,8 +322,9 @@ pub const TensorArena = struct {
     }
 
     /// Allocates backing storage for all non-view tensors in the arena.
-    /// # Note
-    /// You should ONLY call that after finalizing your compute plan(s) to allocate memory for the tensors storage.
+    /// This should be called that after finalizing your compute plan(s) to allocate memory for the tensors storage.
+    /// # WARNING
+    /// You should not be calling that manually unless you know exactly what you're doing.
     pub fn allocateStorage(self: *TensorArena) !void {
         for (self.tensors.items) |tensor| {
             if (tensor.isView()) continue;

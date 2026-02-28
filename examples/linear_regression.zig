@@ -19,9 +19,6 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    var tensorArena: TensorArena = .init(allocator);
-    defer tensorArena.deinit();
-
     const N: usize = 2500; // number of samples
     const lr: f32 = 0.01;
     const epochs: usize = 2000;
@@ -34,7 +31,7 @@ pub fn main() !void {
     const b_shape: Shape = comptime .fromSlice(&.{1});
 
     // define plan and linear regression model
-    var linearPlan: LinearPlan = .init(&tensorArena, allocator);
+    var linearPlan: LinearPlan = .init(allocator);
     errdefer linearPlan.deinit();
 
     const builder = &linearPlan.builder;
@@ -58,8 +55,6 @@ pub fn main() !void {
     // finalize plan and allocate backing memory for tensors
     var plan: ExecutionPlan = try linearPlan.finalize(true);
     defer plan.deinit();
-
-    try tensorArena.allocateStorage();
 
     // initialize default PRNG
     var prng = std.Random.DefaultPrng.init(42);

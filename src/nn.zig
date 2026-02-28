@@ -248,10 +248,7 @@ test "Linear layer: initialization and shape" {
     var memArena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
-
-    var planBuilder: LinearPlan = .init(&tensorArena, memArena.allocator());
+    var planBuilder: LinearPlan = .init(memArena.allocator());
     defer planBuilder.deinit();
 
     const builder = &planBuilder.builder;
@@ -284,12 +281,10 @@ test "Sequential: testing automatic forward pass" {
     var memArena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer memArena.deinit();
 
-    var tensorArena: TensorArena = .init(memArena.allocator());
-    defer tensorArena.deinit();
+    var linearPlan: LinearPlan = .init(memArena.allocator());
+    defer linearPlan.deinit();
 
-    var planBuilder: LinearPlan = .init(&tensorArena, memArena.allocator());
-    defer planBuilder.deinit();
-    const builder = &planBuilder.builder;
+    const builder = &linearPlan.builder;
 
     // declare a test architecture with two linear layers and a reLu inbetween.
     const TestNet = struct {
