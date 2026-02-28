@@ -25,13 +25,13 @@ const Dtype = tensor.Dtype;
 /// - Biases: `(out_features)` (if bias was enabled)
 /// - Output: `(batch_size, out_features)`
 pub fn Linear(comptime ty: type, comptime bias: bool) type {
+    const param_count = if (bias) 2 else 1;
+
     return struct {
         const Self = @This();
 
-        /// Weight matrix of shape (in_features, out_features)
-        weights: *const Tensor,
-        /// Optional bias vector of shape (out_features)
-        biases: ?*const Tensor,
+        /// Weight matrix of shape (in_features, out_features) + bias matrix of shape (out_features) if enabled
+        params: [param_count]*const Tensor,
         /// Number of input features
         in_features: usize,
         /// Number of output features
@@ -49,12 +49,17 @@ pub fn Linear(comptime ty: type, comptime bias: bool) type {
         pub fn init(plan: *PlanBuilder, in_features: usize, out_features: usize) !Self {
             const dtype = comptime Dtype.getBackingDType(ty);
 
-            const weights = try plan.createTensor(dtype, Shape.fromSlice(&.{ in_features, out_features }), true);
-            const biases = if (bias) try plan.createTensor(dtype, Shape.fromSlice(&.{out_features}), true) else null;
+            const params = blk: {
+                const weights = try plan.createTensor(dtype, Shape.fromSlice(&.{ in_features, out_features }), true);
+                if (bias) {
+                    const biases = try plan.createTensor(dtype, Shape.fromSlice(&.{out_features}), true);
+                    break :blk [_]*const Tensor{ weights, biases };
+                }
+                break :blk [_]*const Tensor{weights};
+            };
 
             return .{
-                .weights = weights,
-                .biases = biases,
+                .params = params,
                 .in_features = in_features,
                 .out_features = out_features,
             };
@@ -62,15 +67,10 @@ pub fn Linear(comptime ty: type, comptime bias: bool) type {
 
         /// Initializes the weights of the layer using the provided random generator.
         pub fn initializeWeights(self: *const Self, rnd: std.Random) void {
-            if (self.weights.slice(f32)) |storage| {
-                for (storage) |*val|
-                    val.* = rnd.floatNorm(f32) * 0.1;
-            }
-
-            if (self.biases) |b| {
-                if (b.slice(f32)) |storage| {
+            for (self.params) |p| {
+                if (p.slice(f32)) |storage| {
                     for (storage) |*val|
-                        val.* = rnd.floatNorm(f32) * 0.1;
+                        val.* = rnd.floatNorm(ty) * 0.1;
                 }
             }
         }
@@ -85,14 +85,13 @@ pub fn Linear(comptime ty: type, comptime bias: bool) type {
         /// # Returns
         /// Output tensor of shape `(batch_size, out_features)`
         pub fn forward(self: *const Self, plan: *PlanBuilder, input: *const Tensor) !*const Tensor {
-            const xw = try ops.matmul(plan, input, self.weights);
-            return if (self.biases) |b| try ops.add(plan, xw, b) else xw;
+            const xw = try ops.matmul(plan, input, self.params[0]);
+            return if (bias) try ops.add(plan, xw, self.params[1]);
         }
 
         /// Returns the trainable parameters of this layer
         pub fn parameters(self: *const Self) []const *const Tensor {
-            if (self.biases) |b| return &.{ self.weights, b };
-            return &.{self.weights};
+            return &self.params;
         }
     };
 }
@@ -241,6 +240,45 @@ pub fn Sequential(comptime T: type) type {
             }
             return slice;
         }
+
+        /// Saves tensor weights to the specified stream for the current model instance.
+        /// NOTE: This method only serializes tensor weights and does not include any information about the computational graph structure, which is defined by the code itself.
+        pub fn saveWeights(self: *const Self, writer: *std.Io.Writer) !void {
+            // write total parameter tensor count before tensor data
+            try writer.writeInt(usize, self.getParameterCount(), .little);
+
+            inline for (std.meta.fields(T)) |fld| {
+                const params: []const *const Tensor = @field(self.layers, fld.name).parameters();
+                if (params.len != 0) {
+                    for (params) |param|
+                        try param.writeContents(writer);
+                }
+            }
+        }
+
+        /// Loads previously serialized tensor weights and biases from a stream
+        /// and restores them into the current model instance.
+        ///
+        /// NOTE: This method only deserializes tensor data and does not validate that
+        /// the computational graph structure is the same as it was for the serialized model,
+        /// as the graph is defined by code. Ensure that the model architecture matches
+        /// the serialization source before calling this method.
+        pub fn loadWeights(self: *const Self, reader: *std.Io.Reader) !void {
+            // read total parameter tensor count to ensure architecture is very roughly the same as the serialized files
+            const totalParamCount = try reader.peekInt(usize, .little);
+            reader.toss(@sizeOf(usize));
+
+            if (totalParamCount != self.getParameterCount())
+                return error.MismatchedParameterCount;
+
+            inline for (std.meta.fields(T)) |fld| {
+                const params: []const *const Tensor = @field(self.layers, fld.name).parameters();
+                if (params.len != 0) {
+                    for (params) |param|
+                        try param.readContents(reader);
+                }
+            }
+        }
     };
 }
 
@@ -254,23 +292,26 @@ test "Linear layer: initialization and shape" {
     const builder = &planBuilder.builder;
 
     // layer with 3 -> 5 features including bias
-    const LinearLayer = nn.Linear(f32, true);
-    const layer = try LinearLayer.init(builder, 3, 5);
+    const layer: nn.Linear(f32, true) = try .init(builder, 3, 5);
+
+    // we should have two parameters, one for weights and the other for biases
+    try std.testing.expectEqual(2, layer.params.len);
+
+    const weights = layer.params[0];
 
     // dims should be 3 input features, 5 out features
     try std.testing.expectEqual(3, layer.in_features);
     try std.testing.expectEqual(5, layer.out_features);
 
     // weights should be (3, 5)
-    try std.testing.expectEqual(2, layer.weights.shape.n_dimensions);
-    try std.testing.expectEqualSlices(usize, &[_]usize{ 3, 5 }, layer.weights.shape.dimensions[0..layer.weights.shape.n_dimensions]);
+    try std.testing.expectEqual(2, weights.shape.n_dimensions);
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 3, 5 }, weights.shape.dimensions[0..weights.shape.n_dimensions]);
+
+    const bias = layer.params[1];
 
     // bias shape should be (5) basically
-    try std.testing.expect(layer.biases != null);
-    if (layer.biases) |b| {
-        try std.testing.expectEqual(1, b.shape.n_dimensions);
-        try std.testing.expectEqualSlices(usize, &[_]usize{5}, b.shape.dimensions[0..b.shape.n_dimensions]);
-    }
+    try std.testing.expectEqual(1, bias.shape.n_dimensions);
+    try std.testing.expectEqualSlices(usize, &[_]usize{5}, bias.shape.dimensions[0..bias.shape.n_dimensions]);
 
     // check total parameter count
     const totalParams = layer.parameters();
@@ -315,4 +356,41 @@ test "Sequential: testing automatic forward pass" {
     // check total parameter count (should be 4, since we have 2 layers with weights and biases tensors)
     const totalParams = net.getParameterCount();
     try std.testing.expectEqual(4, totalParams);
+}
+
+test "Sequential: testing model serialization" {
+    var memArena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer memArena.deinit();
+
+    var planBuilder: LinearPlan = .init(memArena.allocator());
+    defer planBuilder.deinit();
+    const builder = &planBuilder.builder;
+
+    const net: Sequential(struct {
+        l1: Linear(f32, true),
+        act: Activation(.relu),
+        l2: Linear(f32, true),
+
+        pub fn init(plan: *PlanBuilder) !@This() {
+            return .{
+                .l1 = try .init(plan, 3, 4),
+                .act = .init,
+                .l2 = try .init(plan, 4, 2),
+            };
+        }
+    }) = try .init(.{builder});
+
+    const input = try builder.createTensor(.float32, Shape.fromSlice(&.{ 1, 3 }), true);
+    _ = try net.forward(builder, input);
+
+    const executablePlan = try planBuilder.finalize(true);
+    _ = executablePlan;
+
+    var testBuffer = std.Io.Writer.Allocating.init(memArena.allocator());
+    const writer = &testBuffer.writer;
+
+    try net.saveWeights(writer);
+
+    var reader = std.Io.Reader.fixed(testBuffer.written());
+    try net.loadWeights(&reader);
 }
