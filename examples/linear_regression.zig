@@ -8,7 +8,6 @@ const ops = brainz.ops;
 const Dtype = brainz.Dtype;
 const Shape = brainz.Shape;
 const Tensor = brainz.Tensor;
-const TensorArena = brainz.TensorArena;
 
 const LinearPlan = brainz.LinearPlan;
 const ExecutionPlan = brainz.ExecutionPlan;
