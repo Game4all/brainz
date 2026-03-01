@@ -296,7 +296,7 @@ pub const TensorArena = struct {
     }
 
     /// Creates a new tensor of specified data type and shape.
-    pub fn makeTensor(self: *TensorArena, dtype: Dtype, shape: Shape, requires_grad: bool) !*const Tensor {
+    pub fn makeTensor(self: *TensorArena, dtype: Dtype, shape: Shape, requires_grad: bool) Allocator.Error!*const Tensor {
         const tensor = try self.allocator.create(Tensor);
         tensor.* = Tensor{
             .shape = shape,
@@ -314,7 +314,7 @@ pub const TensorArena = struct {
     }
 
     /// Creates a new tensor as a view of a parent tensor.
-    pub fn makeView(self: *TensorArena, parent: *const Tensor, shape: Shape) !*const Tensor {
+    pub fn makeView(self: *TensorArena, parent: *const Tensor, shape: Shape) Allocator.Error!*const Tensor {
         const tensor = try self.makeTensor(parent.dtype, shape, false);
         const T: *Tensor = @constCast(tensor);
         T.parent_view = parent;
@@ -325,7 +325,7 @@ pub const TensorArena = struct {
     /// This should be called that after finalizing your compute plan(s) to allocate memory for the tensors storage.
     /// # WARNING
     /// You should not be calling that manually unless you know exactly what you're doing.
-    pub fn allocateStorage(self: *TensorArena) !void {
+    pub fn allocateStorage(self: *TensorArena) Allocator.Error!void {
         for (self.tensors.items) |tensor| {
             if (tensor.isView()) continue;
 

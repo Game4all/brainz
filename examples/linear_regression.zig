@@ -33,7 +33,7 @@ pub fn main() !void {
     var linearPlan: LinearPlan = .init(allocator);
     errdefer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     // create X and target Y inputs
     const x = try builder.createInput("x", .float32, x_shape, false);

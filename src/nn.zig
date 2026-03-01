@@ -46,7 +46,7 @@ pub fn Linear(comptime ty: type, comptime bias: bool) type {
         ///
         /// # Returns
         /// A new Linear layer instance with uninitialized parameters.
-        pub fn init(plan: *PlanBuilder, in_features: usize, out_features: usize) !Self {
+        pub fn init(plan: PlanBuilder, in_features: usize, out_features: usize) !Self {
             const dtype = comptime Dtype.getBackingDType(ty);
 
             const params = blk: {
@@ -84,7 +84,7 @@ pub fn Linear(comptime ty: type, comptime bias: bool) type {
         ///
         /// # Returns
         /// Output tensor of shape `(batch_size, out_features)`
-        pub fn forward(self: *const Self, plan: *PlanBuilder, input: *const Tensor) !*const Tensor {
+        pub fn forward(self: *const Self, plan: PlanBuilder, input: *const Tensor) !*const Tensor {
             const xw = try ops.matmul(plan, input, self.params[0]);
             return if (bias) try ops.add(plan, xw, self.params[1]);
         }
@@ -113,7 +113,7 @@ pub fn Activation(comptime activ: ActivationFunc) type {
         /// Returns an initialized layer
         pub const init: Self = .{};
 
-        pub fn forward(self: *const @This(), plan: *PlanBuilder, input: *const Tensor) !*const Tensor {
+        pub fn forward(self: *const @This(), plan: PlanBuilder, input: *const Tensor) !*const Tensor {
             _ = self;
             return switch (activ) {
                 .relu => try ops.relu(plan, input),
@@ -146,7 +146,7 @@ fn checkHasMethod(comptime L: type, comptime name: [:0]const u8, comptime expect
 /// Validates that a type follows the Layer API at comptime.
 /// A layer MUST have the following function signatures implemented:
 /// - An init function or field returning a built layer.
-/// - A forward pass method: `fn forward(*const Self, *PlanBuilder, *const Tensor) !*const Tensor`
+/// - A forward pass method: `fn forward(*const Self, PlanBuilder, *const Tensor) !*const Tensor`
 /// - A `parameters` method which returns trainable parameters in the layer: `fn parameters(*const Self) []const *const Tensor`
 fn assertIsLayer(comptime L: type) void {
     // check if the layer has an init function or init field
@@ -154,7 +154,7 @@ fn assertIsLayer(comptime L: type) void {
         @compileError(std.fmt.comptimePrint("Layer type {s} doesn't have an init function or init field.", .{@typeName(L)}));
 
     // check if the layer has a forward function
-    checkHasMethod(L, "forward", &.{ *const L, *PlanBuilder, *const Tensor });
+    checkHasMethod(L, "forward", &.{ *const L, PlanBuilder, *const Tensor });
     // check if the layer has a parameters function
     checkHasMethod(L, "parameters", &.{*const L});
 }
@@ -195,7 +195,7 @@ pub fn Sequential(comptime T: type) type {
         /// Performs a forward pass through all layers in the declared order.
         /// # Args
         /// - `input` is the tensor to be used for forward pass of this net.
-        pub fn forward(self: *const Self, plan: *PlanBuilder, input: *const Tensor) !*const Tensor {
+        pub fn forward(self: *const Self, plan: PlanBuilder, input: *const Tensor) !*const Tensor {
             var current_input = input;
 
             inline for (std.meta.fields(T)) |field| {
@@ -289,7 +289,7 @@ test "Linear layer: initialization and shape" {
     var planBuilder: LinearPlan = .init(memArena.allocator());
     defer planBuilder.deinit();
 
-    const builder = &planBuilder.builder;
+    const builder = planBuilder.builder();
 
     // layer with 3 -> 5 features including bias
     const layer: nn.Linear(f32, true) = try .init(builder, 3, 5);
@@ -325,7 +325,7 @@ test "Sequential: testing automatic forward pass" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     // declare a test architecture with two linear layers and a reLu inbetween.
     const TestNet = struct {
@@ -333,7 +333,7 @@ test "Sequential: testing automatic forward pass" {
         act: Activation(.relu),
         l2: Linear(f32, true),
 
-        pub fn init(plan: *PlanBuilder) !@This() {
+        pub fn init(plan: PlanBuilder) !@This() {
             return .{
                 .l1 = try .init(plan, 3, 4),
                 .act = .init,
@@ -364,14 +364,14 @@ test "Sequential: testing model serialization" {
 
     var planBuilder: LinearPlan = .init(memArena.allocator());
     defer planBuilder.deinit();
-    const builder = &planBuilder.builder;
+    const builder = planBuilder.builder();
 
     const net: Sequential(struct {
         l1: Linear(f32, true),
         act: Activation(.relu),
         l2: Linear(f32, true),
 
-        pub fn init(plan: *PlanBuilder) !@This() {
+        pub fn init(plan: PlanBuilder) !@This() {
             return .{
                 .l1 = try .init(plan, 3, 4),
                 .act = .init,

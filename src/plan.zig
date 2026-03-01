@@ -130,41 +130,49 @@ pub const ExecutionPlan = struct {
 /// An interface for constructing a plan of operations on tensors.
 /// Users should use this interface to add operations to the plan.
 pub const PlanBuilder = struct {
-    addOpFn: *const fn (*@This(), *const OpInfo, []const *const Tensor, *const Tensor, ?*anyopaque) anyerror!void,
-    createInputFn: *const fn (*@This(), []const u8, Dtype, Shape, bool) anyerror!*const Tensor,
-    registerInputFn: *const fn (*@This(), []const u8, *const Tensor) anyerror!void,
-    createOutputFn: *const fn (*@This(), []const u8, Dtype, Shape, bool) anyerror!*const Tensor,
-    registerOutputFn: *const fn (*@This(), []const u8, *const Tensor) anyerror!void,
-    createTensorFn: *const fn (*@This(), Dtype, Shape, bool) anyerror!*const Tensor,
+    ptr: *anyopaque,
+    vtable: *const VTable,
+
+    pub const Error = std.mem.Allocator.Error || error{ TooManyInputs, PlanFinalized };
+
+    /// VTable for the interface
+    pub const VTable = struct {
+        addOp: *const fn (ptr: *anyopaque, op_info: *const OpInfo, inputs: []const *const Tensor, out: *const Tensor, extra: ?*anyopaque) Error!void,
+        createInput: *const fn (ptr: *anyopaque, name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) Error!*const Tensor,
+        registerInput: *const fn (ptr: *anyopaque, name: []const u8, input: *const Tensor) Error!void,
+        createOutput: *const fn (ptr: *anyopaque, name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) Error!*const Tensor,
+        registerOutput: *const fn (ptr: *anyopaque, name: []const u8, output: *const Tensor) Error!void,
+        createTensor: *const fn (ptr: *anyopaque, dtype: Dtype, shape: Shape, requires_grad: bool) Error!*const Tensor,
+    };
 
     /// Creates a tensor as an input and registers it with the plan
-    pub inline fn createInput(self: *@This(), name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) !*const Tensor {
-        return try self.createInputFn(self, name, dtype, shape, require_grad);
+    pub inline fn createInput(self: @This(), name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) Error!*const Tensor {
+        return try self.vtable.createInput(self.ptr, name, dtype, shape, require_grad);
     }
 
     /// Registers a tensor as an input.
-    pub inline fn registerInput(self: *@This(), name: []const u8, input: *const Tensor) !void {
-        return try self.registerInputFn(self, name, input);
+    pub inline fn registerInput(self: @This(), name: []const u8, input: *const Tensor) Error!void {
+        return try self.vtable.registerInput(self.ptr, name, input);
     }
 
     /// Creates a tensor as an output and registers it with the plan
-    pub inline fn createOutput(self: *@This(), name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) !*const Tensor {
-        return try self.createOutputFn(self, name, dtype, shape, require_grad);
+    pub inline fn createOutput(self: @This(), name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) Error!*const Tensor {
+        return try self.vtable.createOutput(self.ptr, name, dtype, shape, require_grad);
     }
 
     /// Registers a tensor as an output.
-    pub inline fn registerOutput(self: *@This(), name: []const u8, output: *const Tensor) !void {
-        return try self.registerOutputFn(self, name, output);
+    pub inline fn registerOutput(self: @This(), name: []const u8, output: *const Tensor) Error!void {
+        return try self.vtable.registerOutput(self.ptr, name, output);
     }
 
     /// Creates a tensor and returns a reference to it.
-    pub inline fn createTensor(self: *@This(), dtype: Dtype, shape: Shape, requires_grad: bool) !*const Tensor {
-        return try self.createTensorFn(self, dtype, shape, requires_grad);
+    pub inline fn createTensor(self: @This(), dtype: Dtype, shape: Shape, requires_grad: bool) Error!*const Tensor {
+        return try self.vtable.createTensor(self.ptr, dtype, shape, requires_grad);
     }
 
     /// Adds an operation to the graph
-    pub inline fn addOp(self: *@This(), op_info: *const OpInfo, inputs: []const *const Tensor, out: *const Tensor, extra: ?*anyopaque) !void {
-        return try self.addOpFn(self, op_info, inputs, out, extra);
+    pub inline fn addOp(self: @This(), op_info: *const OpInfo, inputs: []const *const Tensor, out: *const Tensor, extra: ?*anyopaque) Error!void {
+        return try self.vtable.addOp(self.ptr, op_info, inputs, out, extra);
     }
 };
 
@@ -183,8 +191,15 @@ pub const LinearPlan = struct {
     prog_outputs: std.StringArrayHashMapUnmanaged(*const Tensor),
     // internal flag to track whether the plan was consumed or not (useful for determining if data is still owned by the plan or not)
     finalized: bool,
-    // Intrusive interface for plan builder
-    builder: PlanBuilder,
+
+    const vtable: PlanBuilder.VTable = .{
+        .addOp = LinearPlan.addOp,
+        .createInput = LinearPlan.createInput,
+        .registerInput = LinearPlan.registerInput,
+        .createOutput = LinearPlan.createOutput,
+        .registerOutput = LinearPlan.registerOutput,
+        .createTensor = LinearPlan.createTensor,
+    };
 
     /// Initializes an empty plan
     pub fn init(alloc: Allocator) @This() {
@@ -195,21 +210,21 @@ pub const LinearPlan = struct {
             .prog_outputs = .empty,
             .ops = .empty,
             .finalized = false,
-            .builder = .{
-                .addOpFn = LinearPlan.addOp,
-                .createInputFn = LinearPlan.createInput,
-                .registerInputFn = LinearPlan.registerInput,
-                .createOutputFn = LinearPlan.createOutput,
-                .registerOutputFn = LinearPlan.registerOutput,
-                .createTensorFn = LinearPlan.createTensor,
-            },
+        };
+    }
+
+    /// Returns the builder for this plan.
+    pub fn builder(self: *@This()) PlanBuilder {
+        return .{
+            .ptr = self,
+            .vtable = &vtable,
         };
     }
 
     /// Appends an operation to the plan.
-    fn addOp(i: *PlanBuilder, op_info: *const OpInfo, inputs: []const *const Tensor, out: *const Tensor, extra: ?*anyopaque) !void {
-        const self: *@This() = @fieldParentPtr("builder", i);
-        if (self.finalized) return error.ProgramIsFinalized;
+    fn addOp(ptr: *anyopaque, op_info: *const OpInfo, inputs: []const *const Tensor, out: *const Tensor, extra: ?*anyopaque) PlanBuilder.Error!void {
+        const self: *@This() = @ptrCast(@alignCast(ptr));
+        if (self.finalized) return error.PlanFinalized;
         if (inputs.len > OpNode.MAX_INPUTS) {
             if (@inComptime()) {
                 @compileError(std.fmt.comptimePrint("Expected at most {} inputs, got {} inputs instead.", .{ OpNode.MAX_INPUTS, inputs.len }));
@@ -229,16 +244,16 @@ pub const LinearPlan = struct {
     }
 
     /// Creates a tensor as an input and registers it with the plan
-    fn createInput(i: *PlanBuilder, input_name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) anyerror!*const Tensor {
-        const self: *@This() = @fieldParentPtr("builder", i);
+    fn createInput(ptr: *anyopaque, input_name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) PlanBuilder.Error!*const Tensor {
+        const self: *@This() = @ptrCast(@alignCast(ptr));
         const t = try self.arena.makeTensor(dtype, shape, require_grad);
         try self.prog_inputs.put(self.allocator, input_name, t);
         return t;
     }
 
     /// Registers a tensor as an input.
-    fn registerInput(i: *PlanBuilder, input_name: []const u8, input: *const Tensor) anyerror!void {
-        const self: *@This() = @fieldParentPtr("builder", i);
+    fn registerInput(ptr: *anyopaque, input_name: []const u8, input: *const Tensor) PlanBuilder.Error!void {
+        const self: *@This() = @ptrCast(@alignCast(ptr));
         try self.prog_inputs.put(self.allocator, input_name, input);
     }
 
@@ -251,16 +266,16 @@ pub const LinearPlan = struct {
     }
 
     /// Creates a tensor as an output and registers it with the plan
-    fn createOutput(i: *PlanBuilder, output_name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) anyerror!*const Tensor {
-        const self: *@This() = @fieldParentPtr("builder", i);
+    fn createOutput(ptr: *anyopaque, output_name: []const u8, dtype: Dtype, shape: Shape, require_grad: bool) PlanBuilder.Error!*const Tensor {
+        const self: *@This() = @ptrCast(@alignCast(ptr));
         const t = try self.arena.makeTensor(dtype, shape, require_grad);
         try self.prog_outputs.put(self.allocator, output_name, t);
         return t;
     }
 
     /// Registers a tensor as an output.
-    fn registerOutput(i: *PlanBuilder, output_name: []const u8, output: *const Tensor) anyerror!void {
-        const self: *@This() = @fieldParentPtr("builder", i);
+    fn registerOutput(ptr: *anyopaque, output_name: []const u8, output: *const Tensor) PlanBuilder.Error!void {
+        const self: *@This() = @ptrCast(@alignCast(ptr));
         try self.prog_outputs.put(self.allocator, output_name, output);
     }
 
@@ -272,17 +287,9 @@ pub const LinearPlan = struct {
         return null;
     }
 
-    /// Creates a tensor and registers it as an optimizable parameter for the plan.
-    // fn createParam(i: *PlanBuilder, dtype: Dtype, shape: Shape) anyerror!*const Tensor {
-    //     const self: *@This() = @fieldParentPtr("builder", i);
-    //     const t = try self.arena.makeTensor(dtype, shape, true); // we consider parameters are optimizable by default
-    //     try self.prog_params.append(self.allocator, t);
-    //     return t;
-    // }
-
     /// Creates a tensor and returns a reference to it.
-    fn createTensor(i: *PlanBuilder, dtype: Dtype, shape: Shape, requires_grad: bool) anyerror!*const Tensor {
-        const self: *@This() = @fieldParentPtr("builder", i);
+    fn createTensor(ptr: *anyopaque, dtype: Dtype, shape: Shape, requires_grad: bool) PlanBuilder.Error!*const Tensor {
+        const self: *@This() = @ptrCast(@alignCast(ptr));
         const t = try self.arena.makeTensor(dtype, shape, requires_grad);
         return t;
     }
@@ -290,9 +297,9 @@ pub const LinearPlan = struct {
     /// Finalizes a plan for execution.
     /// # Note
     /// This operation consumes the `LinearPlan` and returns an `ExecutionPlan`
-    pub fn finalize(self: *@This(), backprop: bool) !ExecutionPlan {
+    pub fn finalize(self: *@This(), backprop: bool) PlanBuilder.Error!ExecutionPlan {
         if (self.finalized)
-            return error.AlreadyFinalized;
+            return error.PlanFinalized;
 
         // allocate grad tensors for tensors which require a gradient, aren't views and do not have a gradient tensor already iff backprop is enabled
         if (backprop) {
@@ -356,7 +363,7 @@ test "creating an empty plan" {
     errdefer plan.deinit();
 
     // get the plan builder
-    var builder = &plan.builder;
+    var builder = plan.builder();
 
     _ = try builder.createInput("input", .float32, comptime .fromSlice(&.{ 2, 3, 4 }), false);
     _ = try builder.createOutput("output", .float32, comptime .fromSlice(&.{ 2, 3, 4 }), false);

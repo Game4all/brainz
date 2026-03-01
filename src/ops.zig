@@ -94,7 +94,7 @@ const OPS = struct {
 
 // ======================== Binary element-wise operations ==============================
 
-pub fn add(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn add(plan: PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
     const out_shape = try a.shape.broadcast(b.shape);
     if (a.dtype != b.dtype) return error.DtypeMismatch;
 
@@ -104,7 +104,7 @@ pub fn add(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tenso
     return out;
 }
 
-pub fn sub(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn sub(plan: PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
     const out_shape = try a.shape.broadcast(b.shape);
     if (a.dtype != b.dtype) return error.DtypeMismatch;
 
@@ -114,7 +114,7 @@ pub fn sub(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tenso
     return out;
 }
 
-pub fn mul(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn mul(plan: PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
     const out_shape = try a.shape.broadcast(b.shape);
     if (a.dtype != b.dtype) return error.DtypeMismatch;
 
@@ -124,7 +124,7 @@ pub fn mul(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tenso
     return out;
 }
 
-pub fn div(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn div(plan: PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
     const out_shape = try a.shape.broadcast(b.shape);
     if (a.dtype != b.dtype) return error.DtypeMismatch;
 
@@ -134,7 +134,7 @@ pub fn div(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tenso
     return out;
 }
 
-pub fn matmul(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn matmul(plan: PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
     // only 2D tensors are supported for now
     if (a.shape.n_dimensions != 2 or b.shape.n_dimensions != 2) return error.ShapeMismatch;
     if (a.shape.dimensions[1] != b.shape.dimensions[0]) return error.ShapeMismatch;
@@ -148,7 +148,7 @@ pub fn matmul(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Te
     return out;
 }
 
-pub fn batchedMatMul(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn batchedMatMul(plan: PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
     // a: (B, M, N), b: (N, K) -> (B, M, K)
     if (a.shape.n_dimensions != 3 or b.shape.n_dimensions != 2) return error.ShapeMismatch;
     if (a.shape.dimensions[2] != b.shape.dimensions[0]) return error.ShapeMismatch;
@@ -163,7 +163,7 @@ pub fn batchedMatMul(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*c
     return out;
 }
 
-pub fn mseLoss(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn mseLoss(plan: PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
     if (!a.shape.eql(b.shape)) return error.ShapeMismatch;
     if (a.dtype != b.dtype) return error.DtypeMismatch;
 
@@ -172,7 +172,7 @@ pub fn mseLoss(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const T
     return out;
 }
 
-pub fn crossEntropyLoss(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
+pub fn crossEntropyLoss(plan: PlanBuilder, a: *const Tensor, b: *const Tensor) !*const Tensor {
     if (!a.shape.eql(b.shape)) return error.ShapeMismatch;
     if (a.dtype != b.dtype) return error.DtypeMismatch;
 
@@ -181,26 +181,26 @@ pub fn crossEntropyLoss(plan: *PlanBuilder, a: *const Tensor, b: *const Tensor) 
     return out;
 }
 
-pub fn relu(plan: *PlanBuilder, a: *const Tensor) !*const Tensor {
+pub fn relu(plan: PlanBuilder, a: *const Tensor) !*const Tensor {
     const out = try plan.createTensor(a.dtype, a.shape, a.requires_grad);
     try plan.addOp(&OPS.RELU, &.{a}, out, null);
     return out;
 }
 
-pub fn sigmoid(plan: *PlanBuilder, a: *const Tensor) !*const Tensor {
+pub fn sigmoid(plan: PlanBuilder, a: *const Tensor) !*const Tensor {
     const out = try plan.createTensor(a.dtype, a.shape, a.requires_grad);
     try plan.addOp(&OPS.SIGMOID, &.{a}, out, null);
     return out;
 }
 
-pub fn softmax(plan: *PlanBuilder, a: *const Tensor, axis: usize) !*const Tensor {
+pub fn softmax(plan: PlanBuilder, a: *const Tensor, axis: usize) !*const Tensor {
     if (axis >= a.shape.n_dimensions) return error.AxisOutOfBounds;
     const out = try plan.createTensor(a.dtype, a.shape, a.requires_grad);
     try plan.addOp(&OPS.SOFTMAX, &.{a}, out, @ptrFromInt(axis));
     return out;
 }
 
-pub fn argMax(plan: *PlanBuilder, a: *const Tensor, axis: usize) !*const Tensor {
+pub fn argMax(plan: PlanBuilder, a: *const Tensor, axis: usize) !*const Tensor {
     if (axis >= a.shape.n_dimensions) return error.AxisOutOfBounds;
 
     var outDims: [Shape.MAX_DIMENSIONS]usize = undefined;
@@ -232,7 +232,7 @@ test "op: add forward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{2});
     const a = try builder.createInput("a", .float32, shape, false);
@@ -263,7 +263,7 @@ test "op: add backward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{2});
     const a = try builder.createInput("a", .float32, shape, true);
@@ -302,7 +302,7 @@ test "op: sub forward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{2});
     const a = try builder.createInput("a", .float32, shape, false);
@@ -333,7 +333,7 @@ test "op: sub backward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{2});
     const a = try builder.createInput("a", .float32, shape, true);
@@ -375,7 +375,7 @@ test "op: mul forward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{2});
     const a = try builder.createInput("a", .float32, shape, false);
@@ -408,7 +408,7 @@ test "op: mul backward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{2});
     const a = try builder.createInput("a", .float32, shape, true);
@@ -450,7 +450,7 @@ test "op: div forward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{2});
     const a = try builder.createInput("a", .float32, shape, false);
@@ -483,7 +483,7 @@ test "op: div backward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{2});
     const a = try builder.createInput("a", .float32, shape, true);
@@ -527,7 +527,7 @@ test "op: matmul forward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shapeA: Shape = comptime .fromSlice(&.{ 2, 3 });
     const a = try builder.createInput("a", .float32, shapeA, false);
@@ -574,7 +574,7 @@ test "op: matmul backward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shapeA: Shape = comptime .fromSlice(&.{ 1, 2 });
     const a = try builder.createInput("a", .float32, shapeA, true);
@@ -628,7 +628,7 @@ test "op: mse forward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape: Shape = comptime .fromSlice(&.{2});
     const a = try builder.createInput("a", .float32, shape, false);
@@ -664,7 +664,7 @@ test "op: mse backward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape: Shape = comptime .fromSlice(&.{2});
     const a = try builder.createInput("a", .float32, shape, true);
@@ -714,7 +714,7 @@ test "op: add broadcasting forward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     // broadcast [2] -> [2, 2]
     // a: [1.0, 2.0] -> [[1.0, 2.0], [1.0, 2.0]]
@@ -751,7 +751,7 @@ test "op: add broadcasting backward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     // broadcast a: [1] -> b: [2]
     // a: [10.0] -> [10.0, 10.0]
@@ -796,7 +796,7 @@ test "op: batched matmul forward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     // a: (2, 2, 2), b: (2, 2) -> out: (2, 2, 2)
     const shapeA = Shape.fromSlice(&.{ 2, 2, 2 });
@@ -833,14 +833,14 @@ test "op: cross_entropy forward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape: Shape = comptime .fromSlice(&.{3});
 
     const pred = try builder.createInput("pred", .float32, shape, false); // predicted class probs
     const target = try builder.createInput("target", .float32, shape, false); // target class probs
 
-    const loss = try crossEntropyLoss(&linearPlan.builder, pred, target);
+    const loss = try crossEntropyLoss(builder, pred, target);
     try builder.registerOutput("loss", loss);
 
     var plan = try linearPlan.finalize(false);
@@ -868,7 +868,7 @@ test "op: batched matmul backward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     // a: (2, 1, 2), b: (2, 1) -> out: (2, 1, 1)
     const shapeA = Shape.fromSlice(&.{ 2, 1, 2 });
@@ -921,7 +921,7 @@ test "op: relu forward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{4});
     const a = try builder.createInput("a", .float32, shape, false);
@@ -948,7 +948,7 @@ test "op: relu backward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{4});
     const a = try builder.createInput("a", .float32, shape, true);
@@ -978,7 +978,7 @@ test "op: sigmoid forward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{3});
     const a = try builder.createInput("a", .float32, shape, false);
@@ -1011,7 +1011,7 @@ test "op: sigmoid backward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{1});
     const a = try builder.createInput("a", .float32, shape, true);
@@ -1043,13 +1043,13 @@ test "op: argmax forward axis (2 dimensions)" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = comptime Shape.fromSlice(&.{ 2, 3 });
     const a = try builder.createInput("a", .float32, shape, false);
 
     // argMax on the innermost dimension -> shape (2)
-    const c = try argMax(&linearPlan.builder, a, 1);
+    const c = try argMax(builder, a, 1);
     try builder.registerOutput("c", c);
 
     var plan = try linearPlan.finalize(false);
@@ -1074,12 +1074,12 @@ test "op: softmax forward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = Shape.fromSlice(&.{ 2, 3 });
     const a = try builder.createInput("a", .float32, shape, false);
 
-    const s = try softmax(&linearPlan.builder, a, 1);
+    const s = try softmax(builder, a, 1);
     try builder.registerOutput("s", s);
 
     var plan = try linearPlan.finalize(false);
@@ -1112,12 +1112,12 @@ test "op: softmax backward" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = Shape.fromSlice(&.{ 1, 2 });
     const a = try builder.createInput("a", .float32, shape, true);
 
-    const s = try softmax(&linearPlan.builder, a, 1);
+    const s = try softmax(builder, a, 1);
     try builder.registerOutput("s", s);
 
     var plan = try linearPlan.finalize(true);
@@ -1153,7 +1153,7 @@ test "op: softmax + cross_entropy compatibility" {
     var linearPlan: LinearPlan = .init(memArena.allocator());
     defer linearPlan.deinit();
 
-    const builder = &linearPlan.builder;
+    const builder = linearPlan.builder();
 
     const shape = Shape.fromSlice(&.{ 1, 3 });
     const logits = try builder.createInput("logits", .float32, shape, true);

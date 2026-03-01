@@ -22,7 +22,7 @@ const XorNet = brainz.nn.Sequential(struct {
     activ_1: Activation(.relu),
     layer_2: Linear(f32, true),
 
-    pub fn init(plan: *PlanBuilder) !@This() {
+    pub fn init(plan: PlanBuilder) !@This() {
         return .{
             .layer_1 = try .init(plan, 2, 4),
             .activ_1 = .init,
@@ -48,7 +48,7 @@ pub fn main() !void {
     var planBuilder: LinearPlan = .init(allocator);
     errdefer planBuilder.deinit();
 
-    const builder = &planBuilder.builder;
+    const builder = planBuilder.builder();
 
     // initialize network
     const xorMlp: XorNet = try .init(.{builder});
