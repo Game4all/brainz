@@ -192,15 +192,6 @@ pub const LinearPlan = struct {
     // internal flag to track whether the plan was consumed or not (useful for determining if data is still owned by the plan or not)
     finalized: bool,
 
-    const vtable: PlanBuilder.VTable = .{
-        .addOp = LinearPlan.addOp,
-        .createInput = LinearPlan.createInput,
-        .registerInput = LinearPlan.registerInput,
-        .createOutput = LinearPlan.createOutput,
-        .registerOutput = LinearPlan.registerOutput,
-        .createTensor = LinearPlan.createTensor,
-    };
-
     /// Initializes an empty plan
     pub fn init(alloc: Allocator) @This() {
         return .{
@@ -217,7 +208,14 @@ pub const LinearPlan = struct {
     pub fn builder(self: *@This()) PlanBuilder {
         return .{
             .ptr = self,
-            .vtable = &vtable,
+            .vtable = &.{
+                .addOp = LinearPlan.addOp,
+                .createInput = LinearPlan.createInput,
+                .registerInput = LinearPlan.registerInput,
+                .createOutput = LinearPlan.createOutput,
+                .registerOutput = LinearPlan.registerOutput,
+                .createTensor = LinearPlan.createTensor,
+            },
         };
     }
 
